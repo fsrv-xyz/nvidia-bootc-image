@@ -3,7 +3,7 @@
 # and resize the ext4 filesystem online. Idempotent: a no-op once already full.
 set -euo pipefail
 
-src="$(findmnt -no SOURCE /var)"           # e.g. /dev/vda4
+src="$(findmnt -no SOURCE --nofsroot /var)"  # e.g. /dev/vda4 (bare device, no [subpath])
 [ -b "$src" ] || { echo "grow-var: /var source '$src' is not a block device, skipping"; exit 0; }
 
 disk="/dev/$(lsblk -no PKNAME "$src")"      # e.g. /dev/vda

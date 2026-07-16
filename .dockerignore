@@ -1,0 +1,5 @@
+docs/
+*.qcow2
+*.raw
+output/
+.git/

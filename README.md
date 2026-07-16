@@ -1,107 +1,123 @@
-# vllm-bootc — Fedora bootc Image mit NVIDIA-Treiber + CUDA
+# vllm-bootc — Fedora bootc image with NVIDIA driver + CUDA
 
-Minimales, immutable (**transient-root**) Fedora-42 **bootc**-Image für AMD64 mit
-proprietärem NVIDIA-Treiber (RPM Fusion `akmod-nvidia`, Kernel-Modul **zur
-Build-Zeit** vorkompiliert) und `nvidia-container-toolkit`. Ziel: GPU-Workloads
-(später vllm) als Container. CUDA wird bewusst **nicht** als Host-Toolkit
-installiert — Container bringen ihre eigene CUDA-Runtime mit; die CUDA-Libs
-(`libcuda.so`) werden per CDI in jeden GPU-Container injiziert.
+A minimal, immutable (**transient-root**) Fedora 42 **bootc** image for AMD64 with
+the proprietary NVIDIA driver (RPM Fusion `akmod-nvidia`, kernel module precompiled
+**at build time**) and `nvidia-container-toolkit`. Goal: GPU workloads (vllm, later)
+as containers. CUDA is deliberately **not** installed as a host toolkit — containers
+bring their own CUDA runtime, and the CUDA driver library (`libcuda.so`) is injected
+into every GPU container via CDI.
 
-Verifiziert auf einer Proxmox-VM mit PCIe-Passthrough (RTX 3080 Ti):
-`nvidia-smi` erkennt die GPU auf dem Host, und CUDA erkennt die GPU im Container.
+The host is **IPv6-only** (SLAAC, no DHCP), managed by **systemd-networkd** (no
+NetworkManager). Login is **root only**, SSH key based.
 
-## Aufbau
+Verified on a Proxmox VM with PCIe passthrough (RTX 3080 Ti): `nvidia-smi` detects
+the GPU on the host, and CUDA detects the GPU inside a container.
 
-| Datei | Zweck |
+## Layout
+
+| Path | Purpose |
 |---|---|
-| `Containerfile` | Image-Definition (Treiber, Container-Toolkit, Modul-Build, Konfig) |
-| `build.sh` | Baut das Image auf dem Docker-Remote-Host (amd64) |
-| `make-disk.sh` | Erzeugt eine `qcow2` via `bootc-image-builder` |
-| `bib/config.toml` | bootc-image-builder Konfiguration (minimal; Provisionierung ist im Image) |
-| `files/` | In `/` kopierte Konfig (kargs, modules-load, transient-root, CDI-Service, sshd, sudo, CUDA-Check) |
-| `sshkeys/florian.keys` | Public Key des Test-Users (in `/usr/share/sshkeys` gebacken) |
-| `test/provision-vm.sh` | Legt Proxmox-VM 110 mit GPU-Passthrough an und startet sie |
-| `test/validate.sh` | Prüft die Erfolgskriterien in der VM (via SSH) |
+| `Containerfile` | Image definition (driver, container toolkit, module build, networking, config) |
+| `build.sh` | Build the image on the remote Docker host (amd64) |
+| `make-disk.sh` | Produce a `qcow2` via `bootc-image-builder` |
+| `bib/config.toml` | bootc-image-builder config (minimal; provisioning is in the image) |
+| `files/` | Content copied into `/` (kargs, modules-load, transient-root, CDI service, networkd, sshd, CUDA check) |
+| `sshkeys/root.keys` | Public key for root (baked into `/usr/share/sshkeys`) |
+| `test/provision-vm.sh` | Create Proxmox VM 110 with GPU passthrough and start it |
+| `test/validate.sh` | Check the success criteria inside the VM (via SSH over IPv6) |
 
 ## Build
 
     export DOCKER_HOST="ssh://root@docker-remote-environment.drudge.systems:222"
     IMAGE_REF=localhost/vllm-bootc:42 ./build.sh
 
-Der proprietäre Treiber kommt aus RPM Fusion. Das Kernel-Modul (`akmods`) wird
-gegen den exakt im Image enthaltenen Kernel vorkompiliert und ist dadurch immutable
-und sofort beim ersten Boot verfügbar. `install_weak_deps=False` hält das Image
-headless-schlank (kein Desktop-/Audio-Ballast).
+The proprietary driver comes from RPM Fusion. The kernel module (`akmods`) is
+precompiled against the exact kernel included in the image, so it is immutable and
+available on first boot. `install_weak_deps=False` keeps the image headless-lean.
 
-## Disk (qcow2) erzeugen
+## Create the disk (qcow2)
 
-    ./make-disk.sh          # Ausgabe: /root/bib-output/qcow2/disk.qcow2 (auf dem Docker-Remote-Host)
+    ./make-disk.sh          # output: /root/bib-output/qcow2/disk.qcow2 (on the remote Docker host)
 
-`bootc-image-builder` benötigt einen initialisierten `containers-storage`. Da der
-Docker-Host keinen podman-Storage hat, überbrückt `make-disk.sh` Docker → BIB über
-eine temporäre lokale `registry:2` und befüllt den Host-`containers-storage` per
-podman-in-docker. Fedora-bootc deklariert keinen Default-Root-FS-Typ, daher wird
-`--rootfs ext4` gesetzt.
+`bootc-image-builder` needs an initialized `containers-storage`. Since the Docker
+host has no podman storage, `make-disk.sh` bridges Docker -> BIB via a temporary
+local `registry:2` and populates the host `containers-storage` with podman-in-docker.
+Fedora bootc declares no default root filesystem type, so `--rootfs ext4` is set.
 
-## Test (Proxmox node2, VM 110, GPU-Passthrough)
+## Test (Proxmox node2, VM 110, GPU passthrough)
 
-    # qcow2 auf node2 streamen:
+    # Stream the qcow2 to node2:
     ssh -p 222 root@docker-remote-environment.drudge.systems 'cat /root/bib-output/qcow2/disk.qcow2' \
       | ssh root@node2.dro1.pve.fsrv.cloud 'cat > /var/lib/vz/template/vllm-bootc-disk.qcow2'
 
-    ./test/provision-vm.sh   # erstellt + startet VM 110 (q35, SeaBIOS, hostpci mapping=rtx3080ti)
-    ./test/validate.sh       # validiert nvidia-smi + CUDA im Container
+    ./test/provision-vm.sh   # create + start VM 110 (q35, SeaBIOS, hostpci mapping=rtx3080ti, serial0)
+    ./test/validate.sh       # validate networking + nvidia-smi + CUDA in a container
 
-Die VM spiegelt die Referenz-VM 100 (q35, `cpu host`, SeaBIOS → kein Secure Boot,
-daher unsigniertes Kernel-Modul unkompliziert).
+The VM mirrors reference VM 100 (q35, `cpu host`, SeaBIOS -> no Secure Boot, so the
+unsigned kernel module is unproblematic).
 
-## Erfolgskriterien (verifiziert)
+## Success criteria (verified)
 
-- `nvidia-smi` erkennt die GPU auf dem Host (RTX 3080 Ti, Treiber 580.159.03).
-- CUDA erkennt die GPU im Container: `cuDeviceGetCount = 1`, Gerätename korrekt,
-  CUDA-Driver-Version 13.0 — via CDI (`nvidia.com/gpu=all`).
+- `nvidia-smi` detects the GPU on the host (RTX 3080 Ti, driver 580.159.03).
+- CUDA detects the GPU inside a container: `cuDeviceGetCount = 1`, correct device
+  name, CUDA driver version 13.0 — via CDI (`nvidia.com/gpu=all`).
 
-Für den klassischen `nvcc`-`deviceQuery` (großes CUDA-devel-Image, ~4 GB Pull):
+For the classic `nvcc` `deviceQuery` (large CUDA devel image, ~4 GB pull):
 
-    sudo CUDA_FULL=1 /usr/libexec/cuda-container-check   # in der VM; braucht ausreichend /var-Platz
+    CUDA_FULL=1 /usr/libexec/cuda-container-check   # in the VM; needs enough /var space
 
-## Zugriff auf die Test-VM
+## Networking (IPv6-only, systemd-networkd)
 
-Der `qemu-guest-agent` läuft in einer confined SELinux-Domain (`virt_qemu_ga_t`)
-und darf `nvidia-smi` **nicht** ausführen — Validierung/Debugging daher via SSH
-(ProxyJump über den Proxmox-Host):
+The host obtains exactly one **stable EUI-64** global address via SLAAC:
 
-    ssh -J root@node2.dro1.pve.fsrv.cloud -i sshkeys/vllm_bootc_test florian@<vm-ip>
+- `files/usr/lib/systemd/network/10-ethernet-ipv6.network`: `IPv6Token=eui64`,
+  `IPv6PrivacyExtensions=no` (no temporary addresses), `DHCP=no`,
+  `LinkLocalAddressing=ipv6` (no IPv4 at all).
+- NetworkManager is removed/masked; `systemd-networkd` + `systemd-resolved` are
+  enabled. DNS comes from RA (RDNSS).
 
-VM-IP: `ssh root@node2... 'qm guest cmd 110 network-get-interfaces'`.
+The EUI-64 address is deterministic from the NIC MAC, e.g. MAC `bc:24:11:7a:a1:5b`
+on prefix `2001:67c:828:42::/64` -> `2001:67c:828:42:be24:11ff:fe7a:a15b`.
 
-## Update-Fähigkeit
+## Access to the test VM
 
-bootc-System, aktualisiert transaktional. Sobald das Image in eine aus der VM
-erreichbare Registry gepusht ist (statt `localhost/...` / `127.0.0.1:5000`), zeigt
-die gebootete Referenz dorthin und Updates laufen über:
+Root, SSH key only (`PermitRootLogin prohibit-password`). The key is baked at
+`/usr/share/sshkeys/root.keys`; the private test key lives in the repo under
+`sshkeys/vllm_bootc_test` (gitignored). Because the host is IPv6-only, connect to
+its global SLAAC address (ProxyJump through the Proxmox host):
 
-    sudo bootc upgrade      # neues Image ziehen + beim nächsten Boot aktivieren
-    sudo bootc status       # Deployments anzeigen
-    sudo bootc rollback     # auf vorheriges Deployment zurück
+    ssh -J root@node2.dro1.pve.fsrv.cloud -i sshkeys/vllm_bootc_test root@<vm-ipv6>
 
-Die Registry-Referenz ist über `IMAGE_REF` parametrierbar. Da das Kernel-Modul bei
-jedem Image-Build gegen den enthaltenen Kernel neu vorkompiliert wird, bleibt der
-Treiber nach Kernel-Updates konsistent.
+Find the address: `ssh root@node2... 'qm guest cmd 110 network-get-interfaces'`.
+Console access (no network needed) is available via `qm terminal 110` (serial0).
+
+## Update capability
+
+This is a bootc system; it updates transactionally. Once the image is pushed to a
+registry reachable from the VM (instead of `localhost/...` / `127.0.0.1:5000`), the
+booted reference points there and updates run via:
+
+    bootc upgrade      # pull a newer image + activate on next boot
+    bootc status       # show deployments
+    bootc rollback     # roll back to the previous deployment
+
+The registry reference is parameterized via `IMAGE_REF`. Because the kernel module
+is recompiled against the included kernel on every image build, the driver stays
+consistent across kernel updates.
 
 ## Immutability
 
-- **Transient Root** (`root.transient=true`): `/` ist ein read-only composefs mit
-  tmpfs-Overlay — Änderungen außerhalb `/var` sind pro Boot flüchtig. Persistente
-  Daten gehören unter `/var`.
-- `/usr` read-only (composefs/fs-verity).
-- Provisionierung (User, SSH-Key, sudo, sshd-Konfig) ist im Image gebacken, damit
-  sie transient-root-fest ist. Der CDI-Service regeneriert `/etc/cdi/nvidia.yaml`
-  bei jedem Boot.
+- **Transient root** (`root.transient=true`): `/` is a read-only composefs with a
+  tmpfs overlay — changes outside `/var` are ephemeral per boot. Persistent data
+  belongs under `/var`.
+- `/usr` is read-only (composefs/fs-verity).
+- Provisioning (root SSH key, sshd config, networking) is baked into the image so it
+  is transient-root safe. The CDI service regenerates `/etc/cdi/nvidia.yaml` on each
+  boot.
 
-## Scope / offen
+## Scope / open items
 
-- vllm-Container-Betrieb (separat). Hinweis: Die Test-VM hat nur eine 10-GB-Disk;
-  für vllm-Images sollte sie vergrößert werden.
-- Secure Boot / MOK-Signierung (nur bei UEFI+Secure Boot nötig; Test nutzt SeaBIOS).
-- Finale Registry-Wahl + CI-Push.
+- Running the vllm container (separate). Note: the test VM has only a 10 GB disk; it
+  should be grown for vllm images.
+- Secure Boot / MOK signing (only needed with UEFI + Secure Boot; the test uses SeaBIOS).
+- Final registry choice + CI push.

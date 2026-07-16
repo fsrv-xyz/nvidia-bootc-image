@@ -1,34 +1,37 @@
 FROM quay.io/fedora/fedora-bootc:42
 
-# --- RPM Fusion (free + nonfree) für den proprietären NVIDIA-Treiber ---
+# --- RPM Fusion (free + nonfree) for the proprietary NVIDIA driver ---
 RUN set -eux; \
     dnf -y install \
       "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm" \
       "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-42.noarch.rpm"
 
-# --- NVIDIA Container Toolkit Repo ---
+# --- NVIDIA Container Toolkit repo ---
 RUN set -eux; \
     curl -fsSL -o /etc/yum.repos.d/nvidia-container-toolkit.repo \
       https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo
 
-# --- Treiber (RPM Fusion), Container-Toolkit, Guest-Agent ---
-# akmod-nvidia liefert die Modul-Quellen; xorg-x11-drv-nvidia-cuda liefert nvidia-smi/libcuda.
-# Der eigentliche Modul-Build passiert in Task 2.
-# install_weak_deps=False: kein Desktop-/Audio-Ballast (pipewire, mesa-va, ...) für ein
-# headless GPU-Compute-Image. nvidia-persistenced explizit, da sonst als weak-dep entfiele.
+# --- Driver (RPM Fusion), container toolkit, guest agent, networkd/resolved ---
+# akmod-nvidia provides the module sources; xorg-x11-drv-nvidia-cuda provides
+# nvidia-smi/libcuda. The module build itself happens in the next step.
+# install_weak_deps=False keeps the image headless-lean (no desktop/audio bloat
+# such as pipewire/mesa-va). nvidia-persistenced is listed explicitly because it
+# would otherwise be pulled only as a weak dependency.
 RUN set -eux; \
     dnf -y install --setopt=install_weak_deps=False \
       akmod-nvidia \
       xorg-x11-drv-nvidia-cuda \
       nvidia-persistenced \
       nvidia-container-toolkit \
-      qemu-guest-agent; \
+      qemu-guest-agent \
+      systemd-networkd \
+      systemd-resolved; \
     dnf clean all
 
-# --- NVIDIA Kernel-Modul zur Build-Zeit gegen den Image-Kernel kompilieren ---
-# kernel-devel wird exakt auf die im Image vorhandene Kernel-Version gepinnt.
-# Falls die passende kernel-devel-Version nicht im Repo liegt, wird der Kernel
-# auf den neuesten verfügbaren Stand gebracht und erneut gepinnt.
+# --- Precompile the NVIDIA kernel module against the image kernel at build time ---
+# kernel-devel is pinned to the exact kernel version present in the image. If that
+# kernel-devel version is not available in the repos, the kernel is upgraded to the
+# latest available version and the pin is recomputed.
 RUN set -eux; \
     KVER="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -1)"; \
     if ! dnf -y install "kernel-devel-${KVER}"; then \
@@ -43,22 +46,24 @@ RUN set -eux; \
     dnf clean all; \
     rm -rf /var/cache/* /tmp/*
 
-# --- System-Konfiguration & Provisionierung (transient-root-fest) ---
+# --- System configuration & provisioning (transient-root safe) ---
 COPY files/ /
-COPY sshkeys/florian.keys /usr/share/sshkeys/florian.keys
+COPY sshkeys/root.keys /usr/share/sshkeys/root.keys
 
 RUN set -eux; \
     chmod 0755 /usr/libexec/cuda-container-check; \
-    chmod 0644 /usr/share/sshkeys/florian.keys; \
-    chmod 0440 /etc/sudoers.d/wheel-nopasswd; \
-    # Login-User (Home wird via tmpfiles unter /var/home angelegt) \
-    useradd -M -G wheel florian; \
-    # Services aktivieren \
+    chmod 0644 /usr/share/sshkeys/root.keys; \
+    # Networking: IPv6-only via systemd-networkd; do without NetworkManager. \
+    dnf -y remove NetworkManager NetworkManager-tui 2>/dev/null || true; \
+    systemctl mask NetworkManager.service NetworkManager-wait-online.service 2>/dev/null || true; \
+    systemctl enable systemd-networkd.service systemd-resolved.service; \
+    ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf; \
+    # Services. \
     systemctl enable qemu-guest-agent.service; \
     systemctl enable nvidia-cdi-generate.service; \
     ( systemctl enable nvidia-persistenced.service || true ); \
-    # akmods zur Laufzeit ist auf einem immutable/prebuilt-Image überflüssig und
-    # schlägt fehl (MOK-Keygen auf read-only /etc). Module sind zur Build-Zeit gebaut. \
+    # Runtime akmods is pointless on an immutable/prebuilt image and fails (MOK \
+    # keygen on a read-only /etc). Modules are already built at image build time. \
     systemctl mask akmods.service akmods-keygen@.service
 
 LABEL containers.bootc=1

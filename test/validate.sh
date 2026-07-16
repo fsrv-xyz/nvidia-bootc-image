@@ -1,45 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validiert die Erfolgskriterien in der Test-VM.
-# Zugriff via SSH (ProxyJump über den Proxmox-Host), da der qemu-guest-agent in
-# einer confined SELinux-Domain (virt_qemu_ga_t) läuft und nvidia-smi nicht ausführen darf.
+# Validate the success criteria inside the test VM.
+# Access is via SSH (ProxyJump through the Proxmox host) because the qemu-guest-agent
+# runs in a confined SELinux domain (virt_qemu_ga_t) and may not execute nvidia-smi.
+# The host is IPv6-only, so we connect to its global SLAAC address.
 NODE="${NODE:-root@node2.dro1.pve.fsrv.cloud}"
 VMID="${VMID:-110}"
-VM_USER="${VM_USER:-florian}"
+VM_USER="${VM_USER:-root}"
 KEY="${KEY:-sshkeys/vllm_bootc_test}"
 
-echo ">> VM-IP über guest-agent ermitteln"
+echo ">> Resolving VM global IPv6 via guest-agent"
 VM_IP="$(ssh "${NODE}" "qm guest cmd ${VMID} network-get-interfaces" 2>/dev/null \
   | python3 -c 'import sys,json
 d=json.load(sys.stdin)
 for i in d:
   if i.get("name")=="lo": continue
   for a in i.get("ip-addresses",[]) or []:
-    if a["ip-address-type"]=="ipv4" and not a["ip-address"].startswith("127."):
-      print(a["ip-address"]); raise SystemExit')"
+    ip=a["ip-address"]
+    if a["ip-address-type"]=="ipv6" and not ip.startswith("fe80") and ip!="::1":
+      print(ip); raise SystemExit')"
 echo "   VM_IP=${VM_IP}"
 
 SSH=(ssh -i "${KEY}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
      -o "ProxyJump=${NODE}" "${VM_USER}@${VM_IP}")
 
-echo "############ 1) nvidia-smi (Host) ############"
+echo "############ 0) Network: IPv6-only, single stable EUI-64 address ############"
+"${SSH[@]}" 'echo "-- global IPv6 --"; ip -6 -br addr show scope global
+echo "-- IPv4 (expect none) --"; ip -4 -br addr show scope global || true
+echo "-- backend --"; systemctl is-active systemd-networkd; ! systemctl is-enabled NetworkManager 2>/dev/null && echo "NetworkManager: not enabled"'
+
+echo "############ 1) nvidia-smi (host) ############"
 "${SSH[@]}" 'nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader'
 
-echo "############ 2) Kernel-Module geladen ############"
+echo "############ 2) Kernel modules loaded ############"
 "${SSH[@]}" 'lsmod | grep nvidia'
 
-echo "############ 3) CDI-Spec vorhanden ############"
-"${SSH[@]}" 'ls -l /etc/cdi/ && sudo nvidia-ctk cdi list'
+echo "############ 3) CDI spec present ############"
+"${SSH[@]}" 'ls -l /etc/cdi/ && nvidia-ctk cdi list'
 
-echo "############ 4) CUDA im Container (CDI) ############"
-# Self-contained (unabhängig vom in-Image Skript-Stand): CDI injiziert libcuda.so.1
-# in einen kleinen Container; geprüft werden nvidia-smi + CUDA-Driver-API.
+echo "############ 4) CUDA inside a container (CDI) ############"
+# Self-contained (independent of the in-image script version): CDI injects
+# libcuda.so.1 into a small container; checks nvidia-smi + the CUDA driver API.
 "${SSH[@]}" 'set -e
-sudo podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  docker.io/library/python:3.12-slim nvidia-smi -L
-sudo podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  docker.io/library/python:3.12-slim python3 -c "
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  quay.io/fedora/fedora:42 nvidia-smi -L
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  quay.io/fedora/fedora:42 python3 -c "
 import ctypes
 cuda=ctypes.CDLL(\"libcuda.so.1\"); assert cuda.cuInit(0)==0
 n=ctypes.c_int(); assert cuda.cuDeviceGetCount(ctypes.byref(n))==0
@@ -50,6 +57,9 @@ v=ctypes.c_int(); cuda.cuDriverGetVersion(ctypes.byref(v)); print(\"CUDA driver 
 "'
 
 echo "############ 5) bootc status + transient root ############"
-"${SSH[@]}" 'sudo bootc status --format=yaml | grep -E "image:|booted:" | head -6; echo; findmnt -no FSTYPE,OPTIONS /'
+"${SSH[@]}" 'bootc status --format=yaml | grep -E "image:|booted:" | head -6; echo; findmnt -no FSTYPE,OPTIONS /'
 
-echo "############ ALLE CHECKS DURCH ############"
+echo "############ 6) No failed units ############"
+"${SSH[@]}" 'systemctl --failed --no-pager'
+
+echo "############ ALL CHECKS PASSED ############"

@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-# Validiert CUDA im Container über CDI (nvidia.com/gpu).
+# Validate CUDA inside a container via CDI (nvidia.com/gpu).
 #
-# Default (ressourcenschonend, passt auf kleine Test-Disks): CDI injiziert den
-# NVIDIA-Treiber inkl. libcuda.so.1 in einen kleinen Python-Container; geprüft
-# wird nvidia-smi + die CUDA-Driver-API (cuInit/cuDeviceGetCount/cuDeviceGetName).
+# Default (lightweight, fits on small test disks): CDI injects the NVIDIA driver
+# including libcuda.so.1 into a small Fedora container; it checks nvidia-smi plus
+# the CUDA driver API (cuInit/cuDeviceGetCount/cuDeviceGetName). The image is
+# hosted on quay.io so it is reachable on IPv6-only hosts.
 #
-# CUDA_FULL=1: zusätzlich der klassische nvcc-deviceQuery in einem CUDA-devel-Image
-# (braucht ~4 GB freien Platz für den Image-Pull).
+# CUDA_FULL=1: additionally run the classic nvcc deviceQuery in a CUDA devel image
+# (needs ~4 GB of free space for the image pull).
 set -euo pipefail
 
-SMALL_IMAGE="${SMALL_IMAGE:-docker.io/library/python:3.12-slim}"
+SMALL_IMAGE="${SMALL_IMAGE:-quay.io/fedora/fedora:42}"
 FULL_IMAGE="${CUDA_IMAGE:-docker.io/nvidia/cuda:12.6.2-devel-ubi9}"
 PODMAN=(podman run --rm --device nvidia.com/gpu=all --security-opt label=disable)
 
-echo "== nvidia-smi im Container (CDI) =="
+echo "== nvidia-smi inside a container (CDI) =="
 "${PODMAN[@]}" "${SMALL_IMAGE}" nvidia-smi -L
 
-echo "== CUDA driver API im Container (libcuda via CDI) =="
+echo "== CUDA driver API inside a container (libcuda via CDI) =="
 "${PODMAN[@]}" "${SMALL_IMAGE}" python3 - <<'PY'
 import ctypes, sys
 cuda = ctypes.CDLL("libcuda.so.1")

@@ -7,7 +7,7 @@ ConditionPathExists=/usr/bin/nvidia-ctk
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Geräteknoten sicherstellen (nvidia0 + uvm), dann CDI-Spec nach /etc/cdi schreiben.
+# Ensure the device nodes exist (nvidia0 + uvm), then write the CDI spec to /etc/cdi.
 ExecStartPre=-/usr/bin/nvidia-modprobe -c 0 -u
 ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 ExecStartPost=/usr/bin/nvidia-ctk cdi list

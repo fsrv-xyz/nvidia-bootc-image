@@ -10,13 +10,16 @@ Image=vllm.image
 # GPU via CDI (spec generated at boot by nvidia-cdi-generate.service).
 AddDevice=nvidia.com/gpu=all
 SecurityLabelDisable=true
-PublishPort=8000:8000
+# Host networking: the container uses the host resolver (systemd-resolved stub +
+# NAT64) so HuggingFace resolves, and vLLM binds the host's port 8000 directly.
+Network=host
 # Persistent HF model cache on /var (downloaded on first start, survives reboots).
 Volume=/var/lib/vllm/hf-cache:/root/.cache/huggingface:Z
 Environment=HF_HOME=/root/.cache/huggingface
 ShmSize=1g
 # Entrypoint is `vllm serve`; the model is the positional argument.
-Exec=Qwen/Qwen3.5-0.8B --served-model-name qwen3.5-0.8b --host 0.0.0.0 --port 8000 --max-model-len 16384 --gpu-memory-utilization 0.90
+# --host :: binds IPv6 (the host is IPv6-only).
+Exec=Qwen/Qwen3.5-0.8B --served-model-name qwen3.5-0.8b --host :: --port 8000 --max-model-len 16384 --gpu-memory-utilization 0.90
 
 [Service]
 Restart=on-failure

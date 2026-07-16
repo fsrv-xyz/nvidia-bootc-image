@@ -91,6 +91,30 @@ its global SLAAC address (ProxyJump through the Proxmox host):
 Find the address: `ssh root@node2... 'qm guest cmd 110 network-get-interfaces'`.
 Console access (no network needed) is available via `qm terminal 110` (serial0).
 
+## vLLM service (bound image + Quadlet)
+
+vLLM runs as a podman **Quadlet** systemd service (`vllm.service`) serving
+**Qwen/Qwen3.5-0.8B** on the OpenAI-compatible API, port 8000 (bound on IPv6):
+
+- `files/usr/share/containers/systemd/vllm.image` + a symlink under
+  `/usr/lib/bootc/bound-images.d/` make `docker.io/vllm/vllm-openai:v0.25.1` a bootc
+  **logically bound image** (`bootc image list` shows it as `logical`).
+- `files/usr/share/containers/systemd/vllm.container` runs it with the GPU (CDI),
+  `Network=host` (so HuggingFace resolves via the host resolver/NAT64) and `--host ::`.
+- The model is downloaded on first start to `/var/lib/vllm/hf-cache` (persistent),
+  so it survives reboots without re-downloading.
+- `grow-var.service` + `cloud-utils-growpart` grow `/var` to the disk on boot, so a
+  larger disk needs no manual resize (the vLLM image is ~19 GB).
+
+Use it (from the host or over the VM's IPv6):
+
+    curl http://[::1]:8000/v1/models
+    curl http://[::1]:8000/v1/chat/completions -H 'Content-Type: application/json' \
+      -d '{"model":"qwen3.5-0.8b","messages":[{"role":"user","content":"Hi"}],"max_tokens":32}'
+
+Note: for a VM the disk must be large enough for the ~19 GB vLLM image (+ model).
+The test VM (110) was grown to 60 GB.
+
 ## CI / GitLab
 
 `.gitlab-ci.yml` uses two shared components (`fsrvcorp/ci-components`):

@@ -26,15 +26,18 @@ OpenAI-compatible API. The model is downloaded by vLLM on first start and cached
 
 ### A. Logically bound image + Quadlet (`/usr/share/containers/systemd/`)
 
-- **`vllm.image`** — declares `docker.io/vllm/vllm-openai:v0.25.1`. bootc detects the
-  quadlet image reference and pulls it into the bootc image store on
-  `bootc install`/`upgrade`, binding it to the OS deployment (offline-available,
-  GC'd with the deployment).
+- **`vllm.image`** — declares `docker.io/vllm/vllm-openai:v0.25.1`.
+- **`/usr/lib/bootc/bound-images.d/vllm.image`** — symlink to the quadlet; this is
+  what makes bootc treat the image as a **logically bound image** and pre-pull it
+  into the bootc bound store on `bootc install`/`upgrade` (`bootc image list` then
+  shows it with type `logical`, GC'd with the deployment).
 - **`vllm.container`** — the service:
-  - `Image=vllm.image` (references the LBI unit → ordering dependency)
+  - `Image=vllm.image` (references the image unit)
   - `AddDevice=nvidia.com/gpu=all` (CDI; the driver + CDI spec already exist)
   - `SecurityLabelDisable=true` (SELinux, matches the validated container GPU path)
-  - `PublishPort=8000:8000`, `--host 0.0.0.0`
+  - `Network=host` — the container uses the host's systemd-resolved stub + NAT64,
+    so HuggingFace resolves (in a bridge netns the `127.0.0.53` stub is unreachable);
+    also binds the host port directly. `--host ::` (the host is IPv6-only)
   - `Volume=/var/lib/vllm/hf-cache:/root/.cache/huggingface:Z`, `HF_HOME` set there
   - `ShmSize=1g`
   - `Exec=Qwen/Qwen3.5-0.8B --served-model-name qwen3.5-0.8b --host 0.0.0.0 --port 8000 --max-model-len 16384 --gpu-memory-utilization 0.90`
@@ -83,6 +86,17 @@ OpenAI-compatible API. The model is downloaded by vLLM on first start and cached
 | CDI/SELinux denials for GPU in container | `AddDevice=nvidia.com/gpu=all` + `SecurityLabelDisable=true` (validated path) |
 | Quadlet not auto-enabled | `[Install] WantedBy=multi-user.target` in `.container` (quadlet honors it) |
 | growpart device/partnum hardcoding | Detect dynamically via `findmnt`/`lsblk` |
+
+## Known behavior / follow-up
+
+- **Double storage of the vLLM image.** bootc pre-pulls the bound image into
+  `/sysroot/ostree/bootc/storage`, but this fedora-bootc's default
+  `additionalimagestores` points at `/usr/lib/containers/storage`, not the bootc
+  bound store — so the `vllm.image` quadlet re-pulls once into the podman store on
+  first boot (both copies then persist; steady-state reboots do not re-pull).
+  Single-copy reuse would need a `storage.conf` drop-in adding
+  `/usr/lib/bootc/storage` as an additional image store plus a direct `Image=`
+  reference on the container. Functionally unaffected; noted as an optimization.
 
 ## Out of scope
 

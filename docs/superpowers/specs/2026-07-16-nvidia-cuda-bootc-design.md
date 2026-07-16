@@ -19,12 +19,12 @@ RTX 3080 Ti) gebootet; `nvidia-smi` erkennt die GPU und ein CUDA-Programm
 
 | Thema | Entscheidung |
 |---|---|
-| CUDA-Scope | Voll-CUDA auf dem Host (CUDA-Toolkit im Image) |
+| CUDA-Scope | **Kein** CUDA-Dev-Toolkit auf dem Host. Host = Treiber (`nvidia-smi`/`libcuda`) + `nvidia-container-toolkit`. CUDA wird **im Container** validiert (echter vllm-Pfad). |
 | Treiberquelle | RPM Fusion `akmod-nvidia`, Kernel-Modul zur **Build-Zeit** vorkompiliert |
 | Fedora-Basis | Fedora 42 (`quay.io/fedora/fedora-bootc:42`) |
 | Registry / Update | Registry-URL parametrierbar, final später; Test via qcow2-Disk |
 | Container-Runtime | `nvidia-container-toolkit` von Anfang an dabei (Ziel: vllm-Container) |
-| Immutability | Maximal read-only im bootc-Rahmen |
+| Immutability | **Transient Root** (tmpfs-Overlay, jeder Boot frisch außerhalb `/var`) als Default |
 
 ## Architektur
 
@@ -34,25 +34,20 @@ Basis: `quay.io/fedora/fedora-bootc:42`
 
 1. **Repos aktivieren**
    - RPM Fusion free + nonfree (für `akmod-nvidia` / `xorg-x11-drv-nvidia-cuda`)
-   - NVIDIA CUDA-Repo für Fedora (x86_64) — für das CUDA-Toolkit (`nvcc` etc.)
+   - Kein NVIDIA-CUDA-Repo nötig (kein Host-Toolkit) → nur RPM Fusion.
 
 2. **Treiber (RPM Fusion)**
    - `akmod-nvidia` (proprietär)
-   - `xorg-x11-drv-nvidia-cuda` (liefert `nvidia-smi`, `libcuda`, Runtime-Libs)
+   - `xorg-x11-drv-nvidia-cuda` (liefert `nvidia-smi`, `libcuda`, CUDA-Runtime-Libs
+     — **kein** `nvcc`/Dev-Toolkit; ausreichend, damit Container CUDA nutzen)
 
-3. **CUDA-Toolkit (NVIDIA-Repo)**
-   - `cuda-toolkit-<ver>` (nvcc, cudart, headers)
-   - **Ohne** die Treiberpakete aus dem CUDA-Repo (Konfliktvermeidung mit dem
-     RPM-Fusion-Treiber). Offiziell von RPM Fusion dokumentierter Weg:
-     „Treiber von RPM Fusion + Toolkit von NVIDIA".
-
-4. **Container-GPU-Support**
+3. **Container-GPU-Support**
    - `nvidia-container-toolkit`
    - CDI-Spezifikation für `nvidia.com/gpu` beim Boot generieren
      (`nvidia-ctk cdi generate`), damit `podman run --device nvidia.com/gpu=all`
      funktioniert.
 
-5. **Kernel-Modul vorbacken (kritischer Schritt)**
+4. **Kernel-Modul vorbacken (kritischer Schritt)**
    - `kernel-devel` exakt auf die im Basisimage vorhandene Kernel-Version
      pinnen (`kernel-core` Version-Release ermitteln).
    - `akmods --kernels <image-kernel> --force` → `.ko` liegt immutable im
@@ -60,17 +55,20 @@ Basis: `quay.io/fedora/fedora-bootc:42`
    - **Fallback,** falls akmod-Build gegen den Image-Kernel scheitert:
      `kmod-nvidia` (precompiled) aus RPM Fusion für die passende Kernel-Version.
 
-6. **Konfiguration / Immutability**
+5. **Konfiguration / Immutability**
    - nouveau blacklisten via `/usr/lib/bootc/kargs.d/` Drop-in
      (`rd.driver.blacklist=nouveau modprobe.blacklist=nouveau`).
    - `nvidia`, `nvidia_uvm`, `nvidia_modeset` laden (modules-load.d).
    - `nvidia-persistenced` Service aktivieren.
-   - Read-only maximieren: composefs/fs-verity (F42-Default) beibehalten;
-     `/usr` read-only; nur `/etc` und `/var` beschreibbar und minimal halten.
-   - `transient-root` (tmpfs-Root, jeder Boot frisch außerhalb `/var`) wird als
-     Option im `config.toml`/Install dokumentiert; Default: read-only Root.
+   - composefs/fs-verity (F42-Default) beibehalten; `/usr` read-only.
+   - **Transient Root aktivieren** (Default): Root als tmpfs-Overlay, Änderungen
+     außerhalb `/var` sind je Boot flüchtig. Umsetzung via
+     `/usr/lib/ostree/prepare-root.conf` (`[root] transient = true`) im Image,
+     damit die Eigenschaft Teil des immutable Images ist. `/var` bleibt persistent.
+   - Folge für Provisioning: Login-User/SSH werden im Image gebacken; SSH-Host-Keys
+     regenerieren pro Boot (für Test akzeptabel).
 
-7. **Abschluss**
+6. **Abschluss**
    - `ldconfig`, Aufräumen von Caches, `bootc container lint`.
 
 ### B. Update-Fähigkeit
@@ -95,12 +93,13 @@ Basis: `quay.io/fedora/fedora-bootc:42`
 
 ### D. Validierung (Erfolgskriterien)
 
-1. `nvidia-smi` erkennt die RTX 3080 Ti.
-2. `deviceQuery` (minimal, mit `nvcc` kompiliert) meldet die GPU über CUDA
-   (`cudaGetDeviceCount` > 0, Properties lesbar).
+1. `nvidia-smi` auf dem Host erkennt die RTX 3080 Ti.
+2. CUDA **im Container** erkannt: `podman run --rm --device nvidia.com/gpu=all
+   docker.io/nvidia/cuda:*-base-* nvidia-smi` läuft und listet die GPU; zusätzlich
+   ein CUDA-Runtime-Check (`cudaGetDeviceCount > 0`, z.B. via `deviceQuery` aus
+   einem CUDA-Sample-Image oder kurzem Python/torch-Check im CUDA-Container).
 3. `bootc status` zeigt ein sauberes, update-fähiges Deployment
-   (booted image + Upgrade-Pfad).
-4. (Bonus) `podman run --device nvidia.com/gpu=all ... nvidia-smi` im Container.
+   (booted image + Upgrade-Pfad); Transient-Root aktiv (`/` als overlay/tmpfs).
 
 ## Bewusst außerhalb des Scope (jetzt)
 
@@ -114,9 +113,8 @@ Basis: `quay.io/fedora/fedora-bootc:42`
 | Risiko | Gegenmaßnahme |
 |---|---|
 | akmod-Build gegen falschen Kernel | `kernel-devel` an `kernel-core` pinnen; Build-Log prüfen; Fallback `kmod-nvidia` |
-| CUDA-Toolkit ↔ Treiber-Version inkompatibel | Toolkit-Version passend zum akmod-Treiber wählen; dnf-Auflösung prüfen |
-| CUDA-Repo enthält keine passende Fedora-42-Variante | Nächstliegende unterstützte Fedora-Repo-Variante nutzen; ggf. Toolkit-Version anpassen |
-| Image-Größe (Voll-CUDA) | Nur `cuda-toolkit` statt Meta `cuda`; Caches entfernen; Storage reicht |
+| nvidia-container-toolkit findet libs nicht (CDI) | CDI zur Laufzeit generieren (`nvidia-ctk cdi generate`) via oneshot-Service nach Modul-Load |
+| Transient Root bricht Provisioning/Login | User/SSH-Key im Image backen (nicht in `/etc` zur Laufzeit); Persistentes nur unter `/var` |
 | Passthrough/Boot-Firmware-Mismatch | Test-VM spiegelt VM 100 (SeaBIOS); qcow2 von bootc-image-builder BIOS-fähig |
 
 ## Test-Infrastruktur (verifiziert)

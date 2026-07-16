@@ -1,15 +1,38 @@
 #!/usr/bin/env bash
-# Validiert CUDA im Container: nvidia-smi + cudaGetDeviceCount via nvcc.
+# Validiert CUDA im Container über CDI (nvidia.com/gpu).
+#
+# Default (ressourcenschonend, passt auf kleine Test-Disks): CDI injiziert den
+# NVIDIA-Treiber inkl. libcuda.so.1 in einen kleinen Python-Container; geprüft
+# wird nvidia-smi + die CUDA-Driver-API (cuInit/cuDeviceGetCount/cuDeviceGetName).
+#
+# CUDA_FULL=1: zusätzlich der klassische nvcc-deviceQuery in einem CUDA-devel-Image
+# (braucht ~4 GB freien Platz für den Image-Pull).
 set -euo pipefail
-IMAGE="${CUDA_IMAGE:-docker.io/nvidia/cuda:12.6.2-devel-ubi9}"
 
-echo "== nvidia-smi im Container =="
-podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  "${IMAGE}" nvidia-smi
+SMALL_IMAGE="${SMALL_IMAGE:-docker.io/library/python:3.12-slim}"
+FULL_IMAGE="${CUDA_IMAGE:-docker.io/nvidia/cuda:12.6.2-devel-ubi9}"
+PODMAN=(podman run --rm --device nvidia.com/gpu=all --security-opt label=disable)
 
-echo "== CUDA runtime check (cudaGetDeviceCount) =="
-podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  "${IMAGE}" bash -c '
+echo "== nvidia-smi im Container (CDI) =="
+"${PODMAN[@]}" "${SMALL_IMAGE}" nvidia-smi -L
+
+echo "== CUDA driver API im Container (libcuda via CDI) =="
+"${PODMAN[@]}" "${SMALL_IMAGE}" python3 - <<'PY'
+import ctypes, sys
+cuda = ctypes.CDLL("libcuda.so.1")
+assert cuda.cuInit(0) == 0, "cuInit failed"
+n = ctypes.c_int(); assert cuda.cuDeviceGetCount(ctypes.byref(n)) == 0
+print("CUDA driver API devices:", n.value)
+buf = ctypes.create_string_buffer(256); cuda.cuDeviceGetName(buf, 256, 0)
+print("Device 0:", buf.value.decode())
+v = ctypes.c_int(); cuda.cuDriverGetVersion(ctypes.byref(v))
+print("CUDA driver version:", v.value)
+sys.exit(0 if n.value > 0 else 2)
+PY
+
+if [ "${CUDA_FULL:-0}" = "1" ]; then
+  echo "== CUDA runtime check (nvcc deviceQuery) =="
+  "${PODMAN[@]}" "${FULL_IMAGE}" bash -c '
 cat > /tmp/q.cu <<EOF
 #include <cstdio>
 #include <cuda_runtime.h>
@@ -24,3 +47,4 @@ int main(){
 }
 EOF
 nvcc -o /tmp/q /tmp/q.cu && /tmp/q'
+fi

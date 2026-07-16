@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Validiert CUDA im Container: nvidia-smi + cudaGetDeviceCount via nvcc.
+set -euo pipefail
+IMAGE="${CUDA_IMAGE:-docker.io/nvidia/cuda:12.6.2-devel-ubi9}"
+
+echo "== nvidia-smi im Container =="
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  "${IMAGE}" nvidia-smi
+
+echo "== CUDA runtime check (cudaGetDeviceCount) =="
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  "${IMAGE}" bash -c '
+cat > /tmp/q.cu <<EOF
+#include <cstdio>
+#include <cuda_runtime.h>
+int main(){
+  int n=0; cudaError_t e=cudaGetDeviceCount(&n);
+  if(e){printf("CUDA error: %s\n", cudaGetErrorString(e)); return 1;}
+  printf("CUDA devices: %d\n", n);
+  for(int i=0;i<n;i++){cudaDeviceProp p; cudaGetDeviceProperties(&p,i);
+    printf("  [%d] %s  cc %d.%d  %.1f GiB\n", i, p.name, p.major, p.minor,
+           p.totalGlobalMem/1073741824.0);}
+  return n>0?0:2;
+}
+EOF
+nvcc -o /tmp/q /tmp/q.cu && /tmp/q'

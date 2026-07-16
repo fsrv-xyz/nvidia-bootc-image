@@ -40,4 +40,21 @@ RUN set -eux; \
     dnf clean all; \
     rm -rf /var/cache/* /tmp/*
 
+# --- System-Konfiguration & Provisionierung (transient-root-fest) ---
+COPY files/ /
+COPY sshkeys/florian.keys /usr/share/sshkeys/florian.keys
+
+RUN set -eux; \
+    chmod 0755 /usr/libexec/cuda-container-check; \
+    chmod 0644 /usr/share/sshkeys/florian.keys; \
+    chmod 0440 /etc/sudoers.d/wheel-nopasswd; \
+    # Login-User (Home wird via tmpfiles unter /var/home angelegt) \
+    useradd -M -G wheel florian; \
+    # Services aktivieren \
+    systemctl enable qemu-guest-agent.service; \
+    systemctl enable nvidia-cdi-generate.service; \
+    ( systemctl enable nvidia-persistenced.service || true )
+
 LABEL containers.bootc=1
+
+RUN bootc container lint

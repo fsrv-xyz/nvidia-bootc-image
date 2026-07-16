@@ -1,0 +1,16 @@
+[Unit]
+Description=Generate NVIDIA CDI spec for podman
+After=local-fs.target systemd-modules-load.service
+Wants=systemd-modules-load.service
+ConditionPathExists=/usr/bin/nvidia-ctk
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Geräteknoten sicherstellen (nvidia0 + uvm), dann CDI-Spec nach /etc/cdi schreiben.
+ExecStartPre=-/usr/bin/nvidia-modprobe -c 0 -u
+ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+ExecStartPost=/usr/bin/nvidia-ctk cdi list
+
+[Install]
+WantedBy=multi-user.target

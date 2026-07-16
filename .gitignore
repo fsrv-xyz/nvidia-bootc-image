@@ -2,3 +2,5 @@
 *.qcow2
 *.raw
 output/
+sshkeys/vllm_bootc_test
+sshkeys/vllm_bootc_test.pub

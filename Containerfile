@@ -56,7 +56,10 @@ RUN set -eux; \
     # Services aktivieren \
     systemctl enable qemu-guest-agent.service; \
     systemctl enable nvidia-cdi-generate.service; \
-    ( systemctl enable nvidia-persistenced.service || true )
+    ( systemctl enable nvidia-persistenced.service || true ); \
+    # akmods zur Laufzeit ist auf einem immutable/prebuilt-Image überflüssig und
+    # schlägt fehl (MOK-Keygen auf read-only /etc). Module sind zur Build-Zeit gebaut. \
+    systemctl mask akmods.service akmods-keygen@.service
 
 LABEL containers.bootc=1
 

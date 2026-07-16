@@ -14,7 +14,11 @@ if qm status ${VMID} >/dev/null 2>&1; then
 fi
 qm create ${VMID} --name vllm-bootc-test --machine q35 --cpu host --cores 4 \
   --memory 12288 --numa 1 --ostype l26 --agent 1 \
-  --scsihw virtio-scsi-single --net0 virtio,bridge=vmbr0 --bios seabios --vga std
+  --scsihw virtio-scsi-single --net0 virtio,bridge=vmbr0 --bios seabios --vga std \
+  --serial0 socket
+# serial0: die bootc/cloud-Kmdline enthält console=ttyS0; ohne seriellen Port
+# schlägt serial-getty@ttyS0 fehl. Der Socket-Serial gibt zudem Konsolen-Zugang
+# via 'qm terminal ${VMID}'.
 echo ">> importdisk"
 qm importdisk ${VMID} ${DISK} ${STORAGE}
 qm set ${VMID} --virtio0 ${STORAGE}:vm-${VMID}-disk-0,iothread=1

@@ -14,10 +14,13 @@ RUN set -eux; \
 # --- Treiber (RPM Fusion), Container-Toolkit, Guest-Agent ---
 # akmod-nvidia liefert die Modul-Quellen; xorg-x11-drv-nvidia-cuda liefert nvidia-smi/libcuda.
 # Der eigentliche Modul-Build passiert in Task 2.
+# install_weak_deps=False: kein Desktop-/Audio-Ballast (pipewire, mesa-va, ...) für ein
+# headless GPU-Compute-Image. nvidia-persistenced explizit, da sonst als weak-dep entfiele.
 RUN set -eux; \
-    dnf -y install \
+    dnf -y install --setopt=install_weak_deps=False \
       akmod-nvidia \
       xorg-x11-drv-nvidia-cuda \
+      nvidia-persistenced \
       nvidia-container-toolkit \
       qemu-guest-agent; \
     dnf clean all

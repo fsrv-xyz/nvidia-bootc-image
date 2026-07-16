@@ -1,0 +1,3 @@
+# Provisionierung (User/SSH/sudo) ist bereits im Image gebacken.
+# Diese Datei bleibt bewusst minimal; sie dokumentiert den Ort für spätere Anpassungen.
+[customizations]

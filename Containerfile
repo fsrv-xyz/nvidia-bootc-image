@@ -22,4 +22,22 @@ RUN set -eux; \
       qemu-guest-agent; \
     dnf clean all
 
+# --- NVIDIA Kernel-Modul zur Build-Zeit gegen den Image-Kernel kompilieren ---
+# kernel-devel wird exakt auf die im Image vorhandene Kernel-Version gepinnt.
+# Falls die passende kernel-devel-Version nicht im Repo liegt, wird der Kernel
+# auf den neuesten verfügbaren Stand gebracht und erneut gepinnt.
+RUN set -eux; \
+    KVER="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -1)"; \
+    if ! dnf -y install "kernel-devel-${KVER}"; then \
+      dnf -y upgrade kernel kernel-core kernel-modules kernel-modules-core; \
+      KVER="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -1)"; \
+      dnf -y install "kernel-devel-${KVER}"; \
+    fi; \
+    akmods --force --kernels "${KVER}"; \
+    depmod -a "${KVER}"; \
+    modinfo -k "${KVER}" nvidia >/dev/null; \
+    echo "Built nvidia module for kernel ${KVER}"; \
+    dnf clean all; \
+    rm -rf /var/cache/* /tmp/*
+
 LABEL containers.bootc=1

@@ -25,7 +25,8 @@ RUN set -eux; \
       nvidia-container-toolkit \
       qemu-guest-agent \
       systemd-networkd \
-      systemd-resolved; \
+      systemd-resolved \
+      cloud-utils-growpart; \
     dnf clean all
 
 # --- Precompile the NVIDIA kernel module against the image kernel at build time ---
@@ -51,7 +52,7 @@ COPY files/ /
 COPY sshkeys/root.keys /usr/share/sshkeys/root.keys
 
 RUN set -eux; \
-    chmod 0755 /usr/libexec/cuda-container-check; \
+    chmod 0755 /usr/libexec/cuda-container-check /usr/libexec/grow-var; \
     chmod 0644 /usr/share/sshkeys/root.keys; \
     # Networking: IPv6-only via systemd-networkd; do without NetworkManager. \
     dnf -y remove NetworkManager NetworkManager-tui 2>/dev/null || true; \
@@ -61,7 +62,10 @@ RUN set -eux; \
     # Services. \
     systemctl enable qemu-guest-agent.service; \
     systemctl enable nvidia-cdi-generate.service; \
+    systemctl enable grow-var.service; \
     ( systemctl enable nvidia-persistenced.service || true ); \
+    # vllm.container / vllm.image are Quadlet units; the generator honors their \
+    # [Install] WantedBy, so no explicit enable is needed here. \
     # Runtime akmods is pointless on an immutable/prebuilt image and fails (MOK \
     # keygen on a read-only /etc). Modules are already built at image build time. \
     systemctl mask akmods.service akmods-keygen@.service

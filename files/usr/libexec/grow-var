@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Grow the partition backing /var (the ostree/sysroot partition) to fill the disk
+# and resize the ext4 filesystem online. Idempotent: a no-op once already full.
+set -euo pipefail
+
+src="$(findmnt -no SOURCE /var)"           # e.g. /dev/vda4
+[ -b "$src" ] || { echo "grow-var: /var source '$src' is not a block device, skipping"; exit 0; }
+
+disk="/dev/$(lsblk -no PKNAME "$src")"      # e.g. /dev/vda
+partnum="$(lsblk -no PARTN "$src" 2>/dev/null || echo "${src##*[!0-9]}")"
+
+echo "grow-var: growing ${disk} partition ${partnum} (source ${src})"
+growpart "${disk}" "${partnum}" || echo "grow-var: growpart nothing to do"
+resize2fs "${src}" || echo "grow-var: resize2fs nothing to do"

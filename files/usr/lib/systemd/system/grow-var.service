@@ -1,0 +1,14 @@
+[Unit]
+Description=Grow /var to fill the disk
+DefaultDependencies=no
+After=local-fs.target
+Before=vllm.container
+ConditionPathExists=/usr/libexec/grow-var
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/grow-var
+
+[Install]
+WantedBy=multi-user.target

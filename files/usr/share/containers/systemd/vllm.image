@@ -1,0 +1,7 @@
+# Logically bound image: bootc pulls this into the bootc image store on
+# install/upgrade and binds its lifecycle to the OS deployment.
+[Image]
+Image=docker.io/vllm/vllm-openai:v0.25.1
+
+[Install]
+WantedBy=multi-user.target

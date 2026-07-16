@@ -91,19 +91,36 @@ its global SLAAC address (ProxyJump through the Proxmox host):
 Find the address: `ssh root@node2... 'qm guest cmd 110 network-get-interfaces'`.
 Console access (no network needed) is available via `qm terminal 110` (serial0).
 
+## CI / GitLab
+
+`.gitlab-ci.yml` uses two shared components (`fsrvcorp/ci-components`):
+
+- `container@0.1.0` — builds the image with `docker buildx` on the remote Docker
+  host and pushes to the project registry (`$CI_REGISTRY_IMAGE`). Tag: `latest` on
+  the default branch, `<version>` on a git tag, `branch-<ref>` otherwise.
+- `semver@0.1.0` — on the default branch, derives the next version from conventional
+  commits and creates a git tag, which triggers a versioned image build.
+
+The pushed image is the update base:
+
+    registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image:<tag>
+
 ## Update capability
 
-This is a bootc system; it updates transactionally. Once the image is pushed to a
-registry reachable from the VM (instead of `localhost/...` / `127.0.0.1:5000`), the
-booted reference points there and updates run via:
+This is a bootc system; it updates transactionally. Point the booted deployment at
+the registry image once, then upgrades pull from there:
 
-    bootc upgrade      # pull a newer image + activate on next boot
-    bootc status       # show deployments
-    bootc rollback     # roll back to the previous deployment
+    # point the running VM at the GitLab registry image (pulls + stages)
+    sudo bootc switch registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image:<tag>
+    sudo systemctl reboot
 
-The registry reference is parameterized via `IMAGE_REF`. Because the kernel module
-is recompiled against the included kernel on every image build, the driver stays
-consistent across kernel updates.
+    sudo bootc upgrade      # pull a newer image + activate on next boot
+    sudo bootc status       # show deployments
+    sudo bootc rollback     # roll back to the previous deployment
+
+For local builds the reference is parameterized via `IMAGE_REF`. Because the kernel
+module is recompiled against the included kernel on every image build, the driver
+stays consistent across kernel updates.
 
 ## Immutability
 

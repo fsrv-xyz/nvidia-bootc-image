@@ -43,18 +43,20 @@ echo "############ 4) CUDA inside a container (CDI) ############"
 # Self-contained (independent of the in-image script version): CDI injects
 # libcuda.so.1 into a small container; checks nvidia-smi + the CUDA driver API.
 "${SSH[@]}" 'set -e
-podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  quay.io/fedora/fedora:42 nvidia-smi -L
-podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
-  quay.io/fedora/fedora:42 python3 -c "
+cat > /tmp/cudacheck.py <<PYEOF
 import ctypes
-cuda=ctypes.CDLL(\"libcuda.so.1\"); assert cuda.cuInit(0)==0
-n=ctypes.c_int(); assert cuda.cuDeviceGetCount(ctypes.byref(n))==0
-print(\"CUDA driver API devices:\", n.value)
-buf=ctypes.create_string_buffer(256); cuda.cuDeviceGetName(buf,256,0)
-print(\"Device 0:\", buf.value.decode())
-v=ctypes.c_int(); cuda.cuDriverGetVersion(ctypes.byref(v)); print(\"CUDA driver version:\", v.value)
-"'
+cuda = ctypes.CDLL("libcuda.so.1"); assert cuda.cuInit(0) == 0
+n = ctypes.c_int(); assert cuda.cuDeviceGetCount(ctypes.byref(n)) == 0
+print("CUDA driver API devices:", n.value)
+buf = ctypes.create_string_buffer(256); cuda.cuDeviceGetName(buf, 256, 0)
+print("Device 0:", buf.value.decode())
+v = ctypes.c_int(); cuda.cuDriverGetVersion(ctypes.byref(v)); print("CUDA driver version:", v.value)
+PYEOF
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  docker.io/library/python:3.12-slim nvidia-smi -L
+podman run --rm --device nvidia.com/gpu=all --security-opt label=disable \
+  -v /tmp/cudacheck.py:/cudacheck.py:ro \
+  docker.io/library/python:3.12-slim python3 /cudacheck.py'
 
 echo "############ 5) bootc status + transient root ############"
 "${SSH[@]}" 'bootc status --format=yaml | grep -E "image:|booted:" | head -6; echo; findmnt -no FSTYPE,OPTIONS /'

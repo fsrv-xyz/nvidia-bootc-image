@@ -2,15 +2,15 @@
 # Validate CUDA inside a container via CDI (nvidia.com/gpu).
 #
 # Default (lightweight, fits on small test disks): CDI injects the NVIDIA driver
-# including libcuda.so.1 into a small Fedora container; it checks nvidia-smi plus
-# the CUDA driver API (cuInit/cuDeviceGetCount/cuDeviceGetName). The image is
-# hosted on quay.io so it is reachable on IPv6-only hosts.
+# including libcuda.so.1 into a small python container; it checks nvidia-smi plus
+# the CUDA driver API (cuInit/cuDeviceGetCount/cuDeviceGetName). python:3.12-slim
+# ships python3 and pulls fine on IPv6-only hosts.
 #
 # CUDA_FULL=1: additionally run the classic nvcc deviceQuery in a CUDA devel image
 # (needs ~4 GB of free space for the image pull).
 set -euo pipefail
 
-SMALL_IMAGE="${SMALL_IMAGE:-quay.io/fedora/fedora:42}"
+SMALL_IMAGE="${SMALL_IMAGE:-docker.io/library/python:3.12-slim}"
 FULL_IMAGE="${CUDA_IMAGE:-docker.io/nvidia/cuda:12.6.2-devel-ubi9}"
 PODMAN=(podman run --rm --device nvidia.com/gpu=all --security-opt label=disable)
 

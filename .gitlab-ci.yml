@@ -1,0 +1,9 @@
+stages:
+  - build
+
+include:
+  - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
+    inputs:
+      stage: build
+      containerfile_location: ./Containerfile
+  - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/semver@0.1.0

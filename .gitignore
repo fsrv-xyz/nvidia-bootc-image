@@ -1,0 +1,4 @@
+.DS_Store
+*.qcow2
+*.raw
+output/

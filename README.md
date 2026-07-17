@@ -161,6 +161,24 @@ Update base for a machine (pick the matching system image):
     registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/rtx3080ti:<tag>
     registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/rtx4000ada:<tag>
 
+## CI / GitHub (ghcr.io mirror)
+
+The repo is push-mirrored to `github.com/fsrv-xyz/nvidia-bootc-image`, where
+`.github/workflows/build-images.yml` builds and publishes the same images to GitHub
+Container Registry, **independently of the private registry**:
+
+- Job `base` builds `ghcr.io/fsrv-xyz/nvidia-bootc-image/base:<ref>`.
+- Job `systems` (matrix `rtx3080ti`/`rtx4000ada`, `needs: base`) builds each system
+  **`FROM` the ghcr base** (`--build-arg BASE=ghcr.io/.../base:<ref>`) → pushes
+  `.../rtx3080ti`, `.../rtx4000ada`. GitHub images never reference ref.ci; the ref.ci
+  images build from the ref.ci base. This split works because the system Containerfiles
+  take the base as `ARG BASE`.
+
+GitHub tags use the git ref name directly (`:main`, `:0.3.0`, `:<branch>`); ghcr images:
+
+    ghcr.io/fsrv-xyz/nvidia-bootc-image/rtx3080ti:<tag>
+    ghcr.io/fsrv-xyz/nvidia-bootc-image/rtx4000ada:<tag>
+
 ## Update capability
 
 This is a bootc system; it updates transactionally. Point the booted deployment at

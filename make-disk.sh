@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build a qcow2 disk from the bootc image via bootc-image-builder.
+# Build a qcow2 disk from a bootc image via bootc-image-builder. Defaults to the
+# rtx3080ti system image (build.sh + build-system.sh rtx3080ti first).
 # Docker->BIB bridge: a temporary local registry:2 (127.0.0.1:5000, which Docker
 # treats as insecure automatically); BIB pulls from it with --tls-verify=false.
-: "${IMAGE_REF:=localhost/vllm-bootc:42}"
+: "${IMAGE_REF:=localhost/nvidia-bootc-rtx3080ti:42}"
 export DOCKER_HOST="${DOCKER_HOST:-ssh://root@docker-remote-environment.drudge.systems:222}"
 
-REG_LOCAL="127.0.0.1:5000/vllm-bootc:42"
+REG_LOCAL="127.0.0.1:5000/nvidia-bootc:42"
 OUT_DIR="/root/bib-output"
 
 echo ">> Starting temporary registry"

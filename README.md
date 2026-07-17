@@ -13,15 +13,30 @@ NetworkManager). Login is **root only**, SSH key based.
 Verified on a Proxmox VM with PCIe passthrough (RTX 3080 Ti): `nvidia-smi` detects
 the GPU on the host, and CUDA detects the GPU inside a container.
 
+## Base image + system images
+
+The build is split in two layers:
+
+- **Base image** (`Containerfile` → `.../nvidia-bootc-image/base`): a generic
+  GPU-compute host — driver, CUDA runtime, container toolkit, networking, root SSH,
+  growfs, bound-image storage config, nvtop. No workload. Independently bootable and
+  reusable (e.g. for ollama later).
+- **System images** (`systems/<name>/` → `.../nvidia-bootc-image/<name>`): thin,
+  self-contained overlays that `FROM` the base and add their own workload config.
+  `systems/rtx3080ti` and `systems/rtx4000ada` each ship their own vLLM configuration
+  (currently identical; free to diverge per GPU).
+
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `Containerfile` | Image definition (driver, container toolkit, module build, networking, config) |
-| `build.sh` | Build the image on the remote Docker host (amd64) |
-| `make-disk.sh` | Produce a `qcow2` via `bootc-image-builder` |
+| `Containerfile` | **Base** image (driver, CUDA, toolkit, networking, growfs, storage) |
+| `files/` | Base content copied into `/` (kargs, modules-load, transient-root, CDI, networkd, sshd, CUDA check, growfs) |
+| `systems/rtx3080ti/`, `systems/rtx4000ada/` | Self-contained system images: own `Containerfile` (`FROM base`) + own `files/` (vLLM config) |
+| `build.sh` | Build the **base** on the remote Docker host (amd64) |
+| `build-system.sh <name>` | Build a **system** image `FROM` the local base |
+| `make-disk.sh` | Produce a `qcow2` via `bootc-image-builder` (defaults to the rtx3080ti system image) |
 | `bib/config.toml` | bootc-image-builder config (minimal; provisioning is in the image) |
-| `files/` | Content copied into `/` (kargs, modules-load, transient-root, CDI service, networkd, sshd, CUDA check) |
 | `sshkeys/root.keys` | Public key for root (baked into `/usr/share/sshkeys`) |
 | `test/provision-vm.sh` | Create Proxmox VM 110 with GPU passthrough and start it |
 | `test/validate.sh` | Check the success criteria inside the VM (via SSH over IPv6) |
@@ -29,11 +44,14 @@ the GPU on the host, and CUDA detects the GPU inside a container.
 ## Build
 
     export DOCKER_HOST="ssh://root@docker-remote-environment.drudge.systems:222"
-    IMAGE_REF=localhost/vllm-bootc:42 ./build.sh
+    ./build.sh                     # base -> .../base:main (+ localhost/nvidia-bootc-base:42)
+    ./build-system.sh rtx3080ti    # system FROM local base -> localhost/nvidia-bootc-rtx3080ti:42
 
 The proprietary driver comes from RPM Fusion. The kernel module (`akmods`) is
 precompiled against the exact kernel included in the image, so it is immutable and
 available on first boot. `install_weak_deps=False` keeps the image headless-lean.
+`build.sh` also tags the base as the registry base ref so a system image's
+`FROM ${BASE}` resolves against the freshly built local base.
 
 ## Create the disk (qcow2)
 
@@ -120,33 +138,41 @@ The test VM (110) was grown to 60 GB.
 
 ## CI / GitLab
 
-`.gitlab-ci.yml` uses two shared components (`fsrvcorp/ci-components`):
+`.gitlab-ci.yml` uses the shared `fsrvcorp/ci-components`:
 
-- `container@0.1.0` — builds the image with `docker buildx` on the remote Docker
-  host and pushes to the project registry (`$CI_REGISTRY_IMAGE`). Tag: `latest` on
-  the default branch, `<version>` on a git tag, `branch-<ref>` otherwise.
+- `container@0.1.0` (×3) — builds with `docker buildx` on the remote Docker host and
+  pushes to the project registry. Stage `build-base` builds the base
+  (`.../base`); stage `build-systems` builds the system images (`.../rtx3080ti`,
+  `.../rtx4000ada`) `FROM` the base built in stage 1. All jobs tag with
+  `$CI_COMMIT_REF_SLUG`, so a system's `FROM .../base:<ref>` resolves to the base
+  from the same pipeline — always, on every ref, no rules needed. The base tag is
+  passed to the system builds via `--build-arg BASE=...`.
 - `semver@0.1.0` — on the default branch, derives the next version from conventional
-  commits and creates a git tag, which triggers a versioned image build.
+  commits and creates a git tag, which triggers a versioned build.
 
-The pushed image is the update base:
+Image tags follow the ref slug: `:main` on the default branch, `:<branch-slug>` on
+branches, `:<tag-slug>` on git tags (e.g. `0.1.0` → `0-1-0`). There is no `:latest`.
 
-    registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image:<tag>
+Update base for a machine (pick the matching system image):
+
+    registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/rtx3080ti:<tag>
+    registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/rtx4000ada:<tag>
 
 ## Update capability
 
 This is a bootc system; it updates transactionally. Point the booted deployment at
-the registry image once, then upgrades pull from there:
+the matching system image once, then upgrades pull from there:
 
-    # point the running VM at the GitLab registry image (pulls + stages)
-    sudo bootc switch registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image:<tag>
+    # point the running VM at its system image (pulls + stages)
+    sudo bootc switch registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/rtx3080ti:main
     sudo systemctl reboot
 
     sudo bootc upgrade      # pull a newer image + activate on next boot
     sudo bootc status       # show deployments
     sudo bootc rollback     # roll back to the previous deployment
 
-For local builds the reference is parameterized via `IMAGE_REF`. Because the kernel
-module is recompiled against the included kernel on every image build, the driver
+Because the kernel module is recompiled against the included kernel on every base
+build, the driver
 stays consistent across kernel updates.
 
 ## Immutability

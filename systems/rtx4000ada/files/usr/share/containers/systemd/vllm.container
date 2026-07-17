@@ -1,0 +1,34 @@
+[Unit]
+Description=vLLM OpenAI-compatible server (Qwen3.5-0.8B)
+# GPU device nodes + CDI spec must exist; /var must be grown before the (large) pull.
+After=nvidia-cdi-generate.service grow-var.service network-online.target
+Wants=nvidia-cdi-generate.service grow-var.service network-online.target
+
+[Container]
+# Direct reference to the logically bound image. bootc pre-pulls it into its bound
+# store (see /usr/lib/bootc/bound-images.d/vllm.image); podman finds it there via the
+# additional-image-store config, so it runs from a single copy without re-pulling.
+# Keep this tag in sync with vllm.image.
+Image=docker.io/vllm/vllm-openai:v0.25.1
+# GPU via CDI (spec generated at boot by nvidia-cdi-generate.service).
+AddDevice=nvidia.com/gpu=all
+SecurityLabelDisable=true
+# Host networking: the container uses the host resolver (systemd-resolved stub +
+# NAT64) so HuggingFace resolves, and vLLM binds the host's port 8000 directly.
+Network=host
+# Persistent HF model cache on /var (downloaded on first start, survives reboots).
+Volume=/var/lib/vllm/hf-cache:/root/.cache/huggingface:Z
+Environment=HF_HOME=/root/.cache/huggingface
+ShmSize=1g
+# Entrypoint is `vllm serve`; the model is the positional argument.
+# --host :: binds IPv6 (the host is IPv6-only).
+Exec=Qwen/Qwen3.5-0.8B --served-model-name qwen3.5-0.8b --host :: --port 8000 --max-model-len 16384 --gpu-memory-utilization 0.90
+
+[Service]
+Restart=on-failure
+RestartSec=10
+# First start downloads the model weights.
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

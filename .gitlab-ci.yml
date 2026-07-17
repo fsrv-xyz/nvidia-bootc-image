@@ -1,9 +1,35 @@
 stages:
-  - build
+  - build-base
+  - build-systems
 
 include:
+  # Stage 1: the generic base image (no vLLM). Pushed as .../nvidia-bootc-image/base.
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
     inputs:
-      stage: build
+      stage: build-base
+      image_name: base
       containerfile_location: ./Containerfile
+      tag: $CI_COMMIT_REF_SLUG
+
+  # Stage 2: system images built FROM the base pushed in stage 1. All images share the
+  # same per-pipeline tag ($CI_COMMIT_REF_SLUG), so the system FROM resolves to the base
+  # just built — always, on every ref, no rules needed.
+  - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
+    inputs:
+      stage: build-systems
+      image_name: rtx3080ti
+      containerfile_location: systems/rtx3080ti/Containerfile
+      context_path: systems/rtx3080ti
+      tag: $CI_COMMIT_REF_SLUG
+      additional_build_args: --build-arg BASE=$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_SLUG
+
+  - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
+    inputs:
+      stage: build-systems
+      image_name: rtx4000ada
+      containerfile_location: systems/rtx4000ada/Containerfile
+      context_path: systems/rtx4000ada
+      tag: $CI_COMMIT_REF_SLUG
+      additional_build_args: --build-arg BASE=$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_SLUG
+
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/semver@0.1.0

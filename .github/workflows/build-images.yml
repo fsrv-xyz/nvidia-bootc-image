@@ -75,14 +75,13 @@ jobs:
 
   # Anaconda installer ISO for the BASE image, referencing the ghcr base (independent of
   # ref.ci). bootc-image-builder --type anaconda-iso builds an unattended installer;
-  # the user bootc-switches to a system image after install. Uploaded as a workflow
-  # artifact (and a release asset on tag builds).
+  # the user bootc-switches to a system image after install. Published as a workflow
+  # artifact (on every build, tags included). It is NOT attached to GitHub Releases:
+  # release assets are capped at 2 GiB and this ISO is ~3 GB, so the attach step always
+  # fails validation ("size must be less than 2147483648"). The artifact carries it.
   iso:
     needs: base
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # for the release upload on tags
-      packages: read
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space
@@ -113,8 +112,3 @@ jobs:
           name: nvidia-bootc-base-installer-${{ needs.base.outputs.tag }}
           path: out/bootiso/install.iso
           if-no-files-found: error
-      - name: Attach to release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/bootiso/install.iso

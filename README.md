@@ -105,6 +105,9 @@ vLLM runs as a podman **Quadlet** systemd service (`vllm.service`) serving
   so it survives reboots without re-downloading.
 - `grow-var.service` + `cloud-utils-growpart` grow `/var` to the disk on boot, so a
   larger disk needs no manual resize (the vLLM image is ~19 GB).
+- Single copy: `/usr/lib/bootc/storage` is added as a podman additional image store,
+  so the container runs the bootc-bound image read-only (no duplicate in the podman
+  r/w store). `nvtop` is included for GPU monitoring.
 
 Use it (from the host or over the VM's IPv6):
 

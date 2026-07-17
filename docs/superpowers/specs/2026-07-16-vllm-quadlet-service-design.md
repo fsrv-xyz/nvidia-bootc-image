@@ -87,16 +87,24 @@ OpenAI-compatible API. The model is downloaded by vLLM on first start and cached
 | Quadlet not auto-enabled | `[Install] WantedBy=multi-user.target` in `.container` (quadlet honors it) |
 | growpart device/partnum hardcoding | Detect dynamically via `findmnt`/`lsblk` |
 
-## Known behavior / follow-up
+## Single-copy bound image (implemented)
 
-- **Double storage of the vLLM image.** bootc pre-pulls the bound image into
-  `/sysroot/ostree/bootc/storage`, but this fedora-bootc's default
-  `additionalimagestores` points at `/usr/lib/containers/storage`, not the bootc
-  bound store — so the `vllm.image` quadlet re-pulls once into the podman store on
-  first boot (both copies then persist; steady-state reboots do not re-pull).
-  Single-copy reuse would need a `storage.conf` drop-in adding
-  `/usr/lib/bootc/storage` as an additional image store plus a direct `Image=`
-  reference on the container. Functionally unaffected; noted as an optimization.
+The vLLM image lives once, in the bootc bound store — no second copy in the podman
+r/w store:
+
+- `/usr/share/containers/storage.conf` adds `/usr/lib/bootc/storage` (the bootc
+  bound store) as a read-only **additional image store** (this fedora-bootc doesn't
+  read `storage.conf.d` drop-ins, so the base file is edited at build time).
+- `vllm.container` references the image directly (`Image=docker.io/vllm/vllm-openai:v0.25.1`);
+  podman finds it in the additional store and runs it read-only, no pull.
+- `vllm.image` has no `[Install]`, so the generated `vllm-image.service` never runs a
+  boot-time pull. bootc still pre-pulls the image into its bound store at upgrade via
+  the `/usr/lib/bootc/bound-images.d/vllm.image` symlink.
+
+Verified: after boot `podman images` shows only the `R/O=true` bound-store copy,
+`vllm-image.service` is inactive, and `/var` usage dropped ~18 GB vs. the two-copy
+layout. Default `Pull=missing` still self-heals (pulls into the r/w store) if the
+bound store ever lacks the image.
 
 ## Out of scope
 

@@ -7,6 +7,7 @@ include:
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
     inputs:
       stage: build-base
+      instance_name: base
       image_name: base
       containerfile_location: ./Containerfile
       tag: $CI_COMMIT_REF_SLUG
@@ -17,6 +18,7 @@ include:
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
     inputs:
       stage: build-systems
+      instance_name: rtx3080ti
       image_name: rtx3080ti
       containerfile_location: systems/rtx3080ti/Containerfile
       context_path: systems/rtx3080ti
@@ -26,6 +28,7 @@ include:
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/container@0.1.0
     inputs:
       stage: build-systems
+      instance_name: rtx4000ada
       image_name: rtx4000ada
       containerfile_location: systems/rtx4000ada/Containerfile
       context_path: systems/rtx4000ada

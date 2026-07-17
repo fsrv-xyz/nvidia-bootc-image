@@ -26,7 +26,8 @@ RUN set -eux; \
       qemu-guest-agent \
       systemd-networkd \
       systemd-resolved \
-      cloud-utils-growpart; \
+      cloud-utils-growpart \
+      nvtop; \
     dnf clean all
 
 # --- Precompile the NVIDIA kernel module against the image kernel at build time ---
@@ -64,8 +65,14 @@ RUN set -eux; \
     systemctl enable nvidia-cdi-generate.service; \
     systemctl enable grow-var.service; \
     ( systemctl enable nvidia-persistenced.service || true ); \
-    # vllm.container / vllm.image are Quadlet units; the generator honors their \
-    # [Install] WantedBy, so no explicit enable is needed here. \
+    # Let podman read the bootc bound-image store as a (read-only) additional image
+    # store, so the vllm.container runs the logically bound vllm image directly from
+    # there instead of re-pulling a second copy into the podman r/w store. \
+    sed -i 's#^"/usr/lib/containers/storage",#"/usr/lib/containers/storage",\n"/usr/lib/bootc/storage",#' /usr/share/containers/storage.conf; \
+    grep -q '/usr/lib/bootc/storage' /usr/share/containers/storage.conf; \
+    # vllm.container is a Quadlet unit ([Install] WantedBy honored by the generator). \
+    # vllm.image has no [Install]: bootc reads it via bound-images.d and pre-pulls \
+    # the image at upgrade, so no boot-time pull service is needed. \
     # Runtime akmods is pointless on an immutable/prebuilt image and fails (MOK \
     # keygen on a read-only /etc). Modules are already built at image build time. \
     systemctl mask akmods.service akmods-keygen@.service

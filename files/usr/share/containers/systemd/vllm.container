@@ -5,8 +5,11 @@ After=nvidia-cdi-generate.service grow-var.service network-online.target
 Wants=nvidia-cdi-generate.service grow-var.service network-online.target
 
 [Container]
-# References the vllm.image logically bound image unit.
-Image=vllm.image
+# Direct reference to the logically bound image. bootc pre-pulls it into its bound
+# store (see /usr/lib/bootc/bound-images.d/vllm.image); podman finds it there via the
+# additional-image-store config, so it runs from a single copy without re-pulling.
+# Keep this tag in sync with vllm.image.
+Image=docker.io/vllm/vllm-openai:v0.25.1
 # GPU via CDI (spec generated at boot by nvidia-cdi-generate.service).
 AddDevice=nvidia.com/gpu=all
 SecurityLabelDisable=true

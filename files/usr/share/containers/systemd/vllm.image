@@ -1,7 +1,7 @@
-# Logically bound image: bootc pulls this into the bootc image store on
-# install/upgrade and binds its lifecycle to the OS deployment.
+# Logically bound image: the /usr/lib/bootc/bound-images.d/vllm.image symlink points
+# bootc at this file; bootc pulls the image into its bound store on install/upgrade
+# and binds it to the OS deployment. No [Install] here on purpose — we do NOT want the
+# generated vllm-image.service to run a boot-time pull; the container references the
+# image directly and reads it from the bootc store (additional image store).
 [Image]
 Image=docker.io/vllm/vllm-openai:v0.25.1
-
-[Install]
-WantedBy=multi-user.target

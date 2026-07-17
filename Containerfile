@@ -55,6 +55,11 @@ COPY sshkeys/root.keys /usr/share/sshkeys/root.keys
 RUN set -eux; \
     chmod 0755 /usr/libexec/cuda-container-check /usr/libexec/grow-var; \
     chmod 0644 /usr/share/sshkeys/root.keys; \
+    # Local root password for console/serial login only (SSH stays key-only via the
+    # sshd drop-in). Baked into /etc/shadow so it survives the transient root. \
+    # NOTE: this hash ships in the (public) image — "root" is intentionally weak and \
+    # meant for local console access, not a secret. \
+    echo 'root:root' | chpasswd; \
     # Networking: IPv6-only via systemd-networkd; do without NetworkManager. \
     dnf -y remove NetworkManager NetworkManager-tui 2>/dev/null || true; \
     systemctl mask NetworkManager.service NetworkManager-wait-online.service 2>/dev/null || true; \

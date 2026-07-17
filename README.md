@@ -102,10 +102,16 @@ on prefix `2001:67c:828:42::/64` -> `2001:67c:828:42:be24:11ff:fe7a:a15b`.
 
 ## Access to the test VM
 
-Root, SSH key only (`PermitRootLogin prohibit-password`). The key is baked at
-`/usr/share/sshkeys/root.keys`; the private test key lives in the repo under
-`sshkeys/vllm_bootc_test` (gitignored). Because the host is IPv6-only, connect to
-its global SLAAC address (ProxyJump through the Proxmox host):
+- **SSH:** key only. `PermitRootLogin prohibit-password` + `PasswordAuthentication no`
+  disable password login over SSH entirely. The key is baked at
+  `/usr/share/sshkeys/root.keys`; the private test key lives in the repo under
+  `sshkeys/vllm_bootc_test` (gitignored).
+- **Console / serial:** root has the local password `root` (baked into the image) for
+  `qm terminal` / serial login only. It is intentionally weak, is not usable over SSH,
+  and — since the image is public — is not a secret; it is a local-console convenience.
+
+Because the host is IPv6-only, connect via SSH to its global SLAAC address (ProxyJump
+through the Proxmox host):
 
     ssh -J root@node2.dro1.pve.fsrv.cloud -i sshkeys/vllm_bootc_test root@<vm-ipv6>
 

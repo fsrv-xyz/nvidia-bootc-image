@@ -72,3 +72,49 @@ jobs:
           build-args: |
             BASE=${{ env.IMAGE_BASE }}/base:${{ needs.base.outputs.tag }}
           tags: ${{ env.IMAGE_BASE }}/${{ matrix.system }}:${{ needs.base.outputs.tag }}
+
+  # Anaconda installer ISO for the BASE image, referencing the ghcr base (independent of
+  # ref.ci). bootc-image-builder --type anaconda-iso builds an unattended installer;
+  # the user bootc-switches to a system image after install. Uploaded as a workflow
+  # artifact (and a release asset on tag builds).
+  iso:
+    needs: base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for the release upload on tags
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+      - name: Build anaconda ISO
+        run: |
+          set -eux
+          IMG="${IMAGE_BASE}/base:${{ needs.base.outputs.tag }}"
+          mkdir -p out
+          # Auth file so bootc-image-builder can pull the (possibly private) ghcr base.
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' \
+            "$(printf '%s' '${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}' | base64 -w0)" > auth.json
+          # Pull the base into the host containers-storage.
+          docker run --rm --privileged --network host \
+            -e REGISTRY_AUTH_FILE=/auth.json -v "$PWD/auth.json:/auth.json:ro" \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/podman/stable podman pull "$IMG"
+          # Build the ISO referencing the ghcr base.
+          docker run --rm --privileged --network host --security-opt label=disable \
+            -v "$PWD/out:/output" \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$PWD/bib/iso-config.toml:/config.toml:ro" \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso --rootfs ext4 --config /config.toml "$IMG"
+          sudo chmod -R a+rX out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nvidia-bootc-base-installer-${{ needs.base.outputs.tag }}
+          path: out/bootiso/install.iso
+          if-no-files-found: error
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/bootiso/install.iso

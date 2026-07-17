@@ -1,0 +1,20 @@
+# bootc-image-builder config for the Anaconda installer ISO (--type anaconda-iso).
+# Unattended install: text mode, wipe the target disk, autopartition, reboot into the
+# installed system. bootc-image-builder automatically appends the `ostreecontainer`
+# command that installs the source image, so it must NOT be listed here.
+# The root password and SSH key come baked in from the image.
+
+# Disable Anaconda's Users module: identity (root password + SSH key) is baked into the
+# image, so the Root-password / User-creation spokes must not be required. Without this,
+# a non-interactive install aborts with "mandatory spokes are not completed".
+[customizations.installer.modules]
+disable = ["org.fedoraproject.Anaconda.Modules.Users"]
+
+[customizations.installer.kickstart]
+contents = """
+text --non-interactive
+zerombr
+clearpart --all --initlabel --disklabel=gpt
+autopart --noswap --type=plain
+reboot
+"""

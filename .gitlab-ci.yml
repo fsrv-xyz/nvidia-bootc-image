@@ -1,6 +1,7 @@
 stages:
   - build-base
   - build-systems
+  - build-iso
 
 include:
   # Stage 1: the generic base image (no vLLM). Pushed as .../nvidia-bootc-image/base.
@@ -36,3 +37,30 @@ include:
       additional_build_args: --build-arg BASE=$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_SLUG
 
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/semver@0.1.0
+
+# Stage 3: Anaconda installer ISO for the BASE image. Custom job (the container
+# component only does `docker build`): bootc-image-builder --type anaconda-iso builds
+# an unattended installer that references the ref.ci base image; the ISO is uploaded to
+# the project's generic package registry. Runs on the same remote Docker host as the
+# container component, via privileged `docker run`.
+build-iso:
+  stage: build-iso
+  image: docker:cli
+  variables:
+    DOCKER_HOST: "tcp://docker-remote-environment.drudge.systems:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/etc/docker/certs.d/docker-remote-environment.fsrv.services"
+    IMG: "$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_SLUG"
+    OUT: "/root/bib-iso-$CI_COMMIT_REF_SLUG"
+  script:
+    # Fresh output dir + kickstart config on the Docker host.
+    - docker run --rm -v /root:/host alpine sh -c "rm -rf /host/bib-iso-$CI_COMMIT_REF_SLUG && mkdir -p /host/bib-iso-$CI_COMMIT_REF_SLUG"
+    - docker run --rm -i -v "$OUT:/out" alpine sh -c 'cat > /out/iso-config.toml' < bib/iso-config.toml
+    # Pull the base image into the host containers-storage (ref.ci base is public).
+    - docker run --rm --privileged --network host -v /var/lib/containers/storage:/var/lib/containers/storage quay.io/podman/stable podman pull "$IMG"
+    # Build the Anaconda installer ISO referencing the ref.ci base image.
+    - docker run --rm --privileged --network host --security-opt label=disable -v "$OUT:/output" -v /var/lib/containers/storage:/var/lib/containers/storage -v "$OUT/iso-config.toml:/config.toml:ro" quay.io/centos-bootc/bootc-image-builder:latest --type anaconda-iso --rootfs ext4 --config /config.toml "$IMG"
+    # Upload the ISO to the generic package registry (run curl on the Docker host with the output mounted).
+    - docker run --rm --network host -v "$OUT:/out" -e CI_JOB_TOKEN -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_COMMIT_REF_SLUG curlimages/curl:latest -sfS --header "JOB-TOKEN:$CI_JOB_TOKEN" --upload-file /out/bootiso/install.iso "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/anaconda-iso/$CI_COMMIT_REF_SLUG/nvidia-bootc-base-installer.iso"
+    - docker run --rm -v /root:/host alpine sh -c "rm -rf /host/bib-iso-$CI_COMMIT_REF_SLUG"
+    - echo "ISO -> $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/anaconda-iso/$CI_COMMIT_REF_SLUG/nvidia-bootc-base-installer.iso"

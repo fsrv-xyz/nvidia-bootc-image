@@ -40,19 +40,19 @@ include:
 
 # Stage 3: Anaconda installer ISO for the BASE image. Custom job (the container
 # component only does `docker build`): bootc-image-builder --type anaconda-iso builds
-# an unattended installer that references the ref.ci base image; the ISO is uploaded to
-# the project's generic package registry. Runs on the same remote Docker host as the
-# container component, via privileged `docker run`.
+# an unattended installer that references the ref.ci base image, on the same remote
+# Docker host as the container component, via privileged `docker run`.
+#
+# BUILD-ONLY (validation): the job proves the ISO assembles from the current base; it
+# does NOT publish. The ISO is ~2.9 GB, and ref.ci's ingress enforces a hard ~135 s
+# gateway timeout, so a single-PUT upload to the generic package registry always 504s.
+# The GitHub Actions `iso` job (16 GB runner, no gateway limit) publishes the
+# authoritative ISO as a workflow artifact / release asset. osbuild also needs plenty of
+# scratch on the Docker host's `/` (ostree commit + rootfs + squashfs + ISO, ~15 GB peak)
+# -> keep the host disk clear, or this fails with "exceeds free space on media".
 build-iso:
   stage: build-iso
   image: docker:cli
-  # osbuild assembles the anaconda-iso (~3.4 GB input tree + ~2.9 GB ISO) in a single
-  # RAM tmpfs sized to 50 % of the builder's RAM. The remote Docker host (11 GB RAM ->
-  # 5.9 GB tmpfs) is just under the ~6.3 GB needed, so this job can fail on
-  # "Image size exceeds free space on media". It is non-blocking: the GitHub Actions
-  # `iso` job (16 GB runner) produces the authoritative ISO. Raise the builder to
-  # >= 16 GB RAM to make this deterministic and drop allow_failure.
-  allow_failure: true
   variables:
     DOCKER_HOST: "tcp://docker-remote-environment.drudge.systems:2376"
     DOCKER_TLS_VERIFY: "1"
@@ -67,7 +67,7 @@ build-iso:
     - docker run --rm --privileged --network host -v /var/lib/containers/storage:/var/lib/containers/storage quay.io/podman/stable podman pull "$IMG"
     # Build the Anaconda installer ISO referencing the ref.ci base image.
     - docker run --rm --privileged --network host --security-opt label=disable -v "$OUT:/output" -v /var/lib/containers/storage:/var/lib/containers/storage -v "$OUT/iso-config.toml:/config.toml:ro" quay.io/centos-bootc/bootc-image-builder:latest --type anaconda-iso --rootfs ext4 --config /config.toml "$IMG"
-    # Upload the ISO to the generic package registry (run curl on the Docker host with the output mounted).
-    - docker run --rm --network host -v "$OUT:/out" -e CI_JOB_TOKEN -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_COMMIT_REF_SLUG curlimages/curl:latest -sfS --header "JOB-TOKEN:$CI_JOB_TOKEN" --upload-file /out/bootiso/install.iso "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/anaconda-iso/$CI_COMMIT_REF_SLUG/nvidia-bootc-base-installer.iso"
+    # Verify the ISO was produced, then discard it (build-only validation; not published).
+    - docker run --rm -v "$OUT:/out" alpine sh -c 'ls -lh /out/bootiso/install.iso'
     - docker run --rm -v /root:/host alpine sh -c "rm -rf /host/bib-iso-$CI_COMMIT_REF_SLUG"
-    - echo "ISO -> $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/anaconda-iso/$CI_COMMIT_REF_SLUG/nvidia-bootc-base-installer.iso"
+    - echo "ISO built and validated (not published; GitHub Actions publishes the authoritative artifact)."

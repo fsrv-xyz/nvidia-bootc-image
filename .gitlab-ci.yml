@@ -46,6 +46,13 @@ include:
 build-iso:
   stage: build-iso
   image: docker:cli
+  # osbuild assembles the anaconda-iso (~3.4 GB input tree + ~2.9 GB ISO) in a single
+  # RAM tmpfs sized to 50 % of the builder's RAM. The remote Docker host (11 GB RAM ->
+  # 5.9 GB tmpfs) is just under the ~6.3 GB needed, so this job can fail on
+  # "Image size exceeds free space on media". It is non-blocking: the GitHub Actions
+  # `iso` job (16 GB runner) produces the authoritative ISO. Raise the builder to
+  # >= 16 GB RAM to make this deterministic and drop allow_failure.
+  allow_failure: true
   variables:
     DOCKER_HOST: "tcp://docker-remote-environment.drudge.systems:2376"
     DOCKER_TLS_VERIFY: "1"

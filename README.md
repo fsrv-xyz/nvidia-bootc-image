@@ -43,7 +43,12 @@ The build is split in two layers:
 
 ## Build
 
-    export DOCKER_HOST="ssh://root@docker-remote-environment.drudge.systems:222"
+**Builds run primarily in CI** (`.gitlab-ci.yml`) — every push builds the base and the
+system images and pushes them to the registry. See the CI section below.
+
+The scripts below are optional local helpers. They use your **local Docker**; to build
+on a remote engine, set `DOCKER_HOST` yourself (`export DOCKER_HOST=ssh://user@builder`).
+
     ./build.sh                     # base -> .../base:main (+ localhost/nvidia-bootc-base:42)
     ./build-system.sh rtx3080ti    # system FROM local base -> localhost/nvidia-bootc-rtx3080ti:42
 
@@ -53,23 +58,21 @@ available on first boot. `install_weak_deps=False` keeps the image headless-lean
 `build.sh` also tags the base as the registry base ref so a system image's
 `FROM ${BASE}` resolves against the freshly built local base.
 
-## Create the disk (qcow2)
+## Create the disk (qcow2) — optional, local
 
-    ./make-disk.sh          # output: /root/bib-output/qcow2/disk.qcow2 (on the remote Docker host)
+    ./make-disk.sh          # output: <docker-host>:/root/bib-output/qcow2/disk.qcow2
 
-`bootc-image-builder` needs an initialized `containers-storage`. Since the Docker
-host has no podman storage, `make-disk.sh` bridges Docker -> BIB via a temporary
-local `registry:2` and populates the host `containers-storage` with podman-in-docker.
-Fedora bootc declares no default root filesystem type, so `--rootfs ext4` is set.
+`bootc-image-builder` needs an initialized `containers-storage`. `make-disk.sh` bridges
+Docker -> BIB via a temporary local `registry:2` and populates the Docker host's
+`containers-storage` with podman-in-docker. Fedora bootc declares no default root
+filesystem type, so `--rootfs ext4` is set. For a VM, deploying the registry image via
+`bootc switch`/`upgrade` (see below) is usually simpler than building a disk.
 
-## Test (Proxmox node2, VM 110, GPU passthrough)
+## Test (Proxmox VM with GPU passthrough)
 
-    # Stream the qcow2 to node2:
-    ssh -p 222 root@docker-remote-environment.drudge.systems 'cat /root/bib-output/qcow2/disk.qcow2' \
-      | ssh root@node2.dro1.pve.fsrv.cloud 'cat > /var/lib/vz/template/vllm-bootc-disk.qcow2'
-
-    ./test/provision-vm.sh   # create + start VM 110 (q35, SeaBIOS, hostpci mapping=rtx3080ti, serial0)
-    ./test/validate.sh       # validate networking + nvidia-smi + CUDA in a container
+The normal path is to deploy a registry image to a bootc VM and reboot (see
+*Update capability*). `test/provision-vm.sh` / `test/validate.sh` create and check a
+Proxmox test VM; adjust the host/VM IDs in them for your environment.
 
 The VM mirrors reference VM 100 (q35, `cpu host`, SeaBIOS -> no Secure Boot, so the
 unsigned kernel module is unproblematic).

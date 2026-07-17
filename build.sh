@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build the generic base image on the remote Docker host (amd64) and tag it as the
-# registry base ref, so the system Containerfiles' `FROM ${BASE}` default resolves
-# against this locally-built base (offline, no registry pull).
+# Optional local build helper for the base image. The primary build path is CI
+# (.gitlab-ci.yml). This uses your local Docker; to build on a remote engine, set
+# DOCKER_HOST yourself (e.g. export DOCKER_HOST=ssh://user@builder) before running.
+#
+# The base is also tagged as the registry base ref so a system image's `FROM ${BASE}`
+# (build-system.sh) resolves against this freshly built local base.
 BASE_REF="${BASE_REF:-registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/base:main}"
-export DOCKER_HOST="${DOCKER_HOST:-ssh://root@docker-remote-environment.drudge.systems:222}"
 
-echo ">> Building base ${BASE_REF} on ${DOCKER_HOST}"
+echo ">> Building base ${BASE_REF}"
 docker build --platform linux/amd64 -t "${BASE_REF}" -t localhost/nvidia-bootc-base:42 -f Containerfile .
 echo ">> Done: ${BASE_REF} (also tagged localhost/nvidia-bootc-base:42)"

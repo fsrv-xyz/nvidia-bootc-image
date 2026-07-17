@@ -22,12 +22,13 @@ Environment=HF_HOME=/root/.cache/huggingface
 ShmSize=1g
 # Entrypoint is `vllm serve`; the model is the positional argument.
 # --host :: binds IPv6 (the host is IPv6-only).
-# --enforce-eager: on the 12 GB card, vLLM's default full CUDA-graph capture reserves
-# ~1.6 GiB, which leaves only ~1.4 GiB KV cache -- too little for max-model-len 80000
-# (needs ~2.5 GiB). Disabling graph capture frees that memory (KV -> ~3.06 GiB), so the
-# full 80k context fits. Verified on VM 110 (RTX 3080 Ti); piecewise mode did not free
-# enough. Trade-off: slightly slower decode, negligible at max-num-seqs 4.
-Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 80000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}' --enforce-eager
+# max-model-len 43000: on the 12 GB card, vLLM v0.25.1 reserves ~1.6 GiB for CUDA-graph
+# capture, leaving ~1.4 GiB KV cache -> a graph-accelerated context ceiling of ~43800
+# (verified on VM 110). Keeping the graphs gives ~105 tok/s single-stream (~4x faster
+# than --enforce-eager, which fits 80k but drops to ~27 tok/s). --cpu-offload-gb fits 80k
+# too but streams weights over PCIe -> ~11 tok/s, not worth it. An older vLLM nightly
+# (0.23.x) fit the full 80k with graphs, but we pin the stable release over a nightly.
+Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 43000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}'
 
 [Service]
 Restart=on-failure

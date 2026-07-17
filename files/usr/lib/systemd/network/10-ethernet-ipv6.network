@@ -1,13 +1,14 @@
-# IPv6-only host configuration via SLAAC.
+# Host networking: stable EUI-64 IPv6 via SLAAC, plus IPv4 via DHCP.
 #
-# Exactly one stable global address is formed: the EUI-64 identifier derived
-# from the interface MAC (deterministic, no privacy/temporary addresses). No
-# IPv4 at all, no DHCP. The link-local address is likewise EUI-64 based.
+# The IPv6 side still forms exactly one stable global address: the EUI-64 identifier
+# derived from the interface MAC (deterministic, no privacy/temporary addresses).
+# The link-local address is likewise EUI-64 based. IPv4 is obtained via DHCPv4.
 [Match]
 Type=ether
 
 [Network]
-DHCP=no
+# IPv4 via DHCP; IPv6 stays on SLAAC (RA) below.
+DHCP=ipv4
 LinkLocalAddressing=ipv6
 IPv6AcceptRA=yes
 # Deterministic, MAC-based interface identifier (EUI-64) for SLAAC and link-local.

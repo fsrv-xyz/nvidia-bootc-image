@@ -22,16 +22,19 @@ Environment=HF_HOME=/root/.cache/huggingface
 ShmSize=1g
 # Entrypoint is `vllm serve`; the model is the positional argument.
 # --host :: binds IPv6 (the host is IPv6-only).
-# kv-cache-dtype fp8 + max-model-len 60000: the upstream GDN prefill-warmup leak (vLLM
-# #36973) reserves ~1.6 GiB on the 12 GB card, leaving only ~1.4 GiB KV cache -> bf16
-# caps a graph-accelerated context at ~43800. fp8 halves KV per token, lifting the
-# ceiling to ~62000, so 60000 fits WITH CUDA graphs at full speed (~107 tok/s single-
-# stream on VM 110). Only trade-off is the fp8-quantized KV cache (minor quality). This
-# beats bf16+43k (more context, same speed), --enforce-eager (80k but ~27 tok/s) and
-# --cpu-offload-gb (80k but ~11 tok/s). Full 80k+speed returns once #36973 is fixed
-# upstream (then drop fp8 and set 80000).
+# fp8 KV + max-model-len 80000 + explicit kv-cache-memory: the upstream GDN prefill-warmup
+# leak (vLLM #36973) reserves ~1.6 GiB and also makes vLLM's memory profiler under-size the
+# KV cache, leaving ~2 GiB of the GPU unused. Two levers together recover the full 80k:
+#   * --kv-cache-dtype fp8 halves KV per token, and
+#   * --kv-cache-memory 2600000000 (2.6 GiB) overrides the conservative profiler estimate
+#     and explicitly claims the wasted VRAM.
+# Measured on VM 110 (RTX 3080 Ti): 80000 context serves WITH CUDA graphs at ~107 tok/s
+# single-stream and ~1.9x concurrency, leaving ~740 MiB headroom. Only trade-off is the
+# fp8-quantized KV cache (minor quality). Beats --enforce-eager (80k @ ~27 tok/s) and
+# --cpu-offload-gb (80k @ ~11 tok/s). Once #36973 is fixed upstream, the fp8 + explicit
+# kv-cache-memory workaround can be dropped.
 # Full background/options/measurements: see systems/rtx3080ti/README.md.
-Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 60000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}' --kv-cache-dtype fp8
+Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 80000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}' --kv-cache-dtype fp8 --kv-cache-memory 2600000000
 
 [Service]
 Restart=on-failure

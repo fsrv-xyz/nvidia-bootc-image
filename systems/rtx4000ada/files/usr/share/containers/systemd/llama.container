@@ -1,0 +1,41 @@
+[Unit]
+Description=llama.cpp server (Qwen3.6-27B GGUF, multimodal, RTX 4000 Ada)
+# GPU device nodes + CDI spec must exist; /var must be grown before the (large) pull.
+After=nvidia-cdi-generate.service grow-var.service network-online.target
+Wants=nvidia-cdi-generate.service grow-var.service network-online.target
+
+[Container]
+# Direct reference to the logically bound image. bootc pre-pulls it into its bound store
+# (see /usr/lib/bootc/bound-images.d/llama.image); podman finds it there via the
+# additional-image-store config. Keep this tag in sync with llama.image.
+Image=ghcr.io/ggml-org/llama.cpp:server-cuda
+# GPU via CDI (spec generated at boot by nvidia-cdi-generate.service).
+AddDevice=nvidia.com/gpu=all
+SecurityLabelDisable=true
+# Host networking: llama.cpp binds the host's port 8000 directly.
+Network=host
+# Weights are fetched from Hugging Face on first start (no manual download): -hf pulls
+# the Q4_K_M GGUF *and* the matching mmproj (vision projector) automatically. The download
+# is cached under LLAMA_CACHE on /var, so it happens once and survives reboots/upgrades.
+#
+# Repo choice matters on the 20 GB card: the model + mmproj (~0.9 GB) + 65536-token q8_0 KV
+# (~2.9 GB) + compute must fit in 20 GB, so the Q4_K_M must be <= ~17 GB. unsloth's is
+# 16.8 GB and fits (verified on the target: 19.5/20.5 GiB used, text + vision OK).
+# bartowski's Q4_K_M is 18 GB (keeps embed/output at higher precision) and OOMs here.
+Environment=LLAMA_CACHE=/cache
+Volume=/var/lib/llama/cache:/cache:Z
+# The image entrypoint is the llama.cpp server; these are its flags (from the reference
+# docker-compose, with -m/--mmproj replaced by -hf auto-download). --host 0.0.0.0 binds
+# IPv4; the host also has IPv6 (SLAAC) — switch to `--host ::` to serve IPv6 clients too.
+Exec=-hf unsloth/Qwen3.6-27B-GGUF:Q4_K_M --host 0.0.0.0 --port 8000 -c 65536 -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-format auto --alias qwen3.6-27b --parallel 2 --metrics
+
+[Service]
+# compose: restart: unless-stopped.
+Restart=always
+RestartSec=10
+# First start downloads ~19 GB (model + mmproj) from HF, then loads into VRAM; later
+# starts use the cache and are fast.
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

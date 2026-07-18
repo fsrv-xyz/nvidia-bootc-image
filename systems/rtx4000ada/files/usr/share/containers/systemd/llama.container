@@ -1,5 +1,5 @@
 [Unit]
-Description=llama.cpp server (Qwen3.6-27B GGUF, multimodal, RTX 4000 Ada)
+Description=llama.cpp server (Qwen3.6-27B GGUF, multimodal, MTP speculative, RTX 4000 Ada)
 # GPU device nodes + CDI spec must exist; /var must be grown before the (large) pull.
 After=nvidia-cdi-generate.service grow-var.service network-online.target
 Wants=nvidia-cdi-generate.service grow-var.service network-online.target
@@ -18,16 +18,29 @@ Network=host
 # the Q4_K_M GGUF *and* the matching mmproj (vision projector) automatically. The download
 # is cached under LLAMA_CACHE on /var, so it happens once and survives reboots/upgrades.
 #
-# Repo choice matters on the 20 GB card: the model + mmproj (~0.9 GB) + 65536-token q8_0 KV
-# (~2.9 GB) + compute must fit in 20 GB, so the Q4_K_M must be <= ~17 GB. unsloth's is
-# 16.8 GB and fits (verified on the target: 19.5/20.5 GiB used, text + vision OK).
-# bartowski's Q4_K_M is 18 GB (keeps embed/output at higher precision) and OOMs here.
+# MTP (Multi-Token Prediction): this uses the unsloth *MTP* repo, whose Q4_K_M ships extra
+# speculative-decoding heads. `--spec-type draft-mtp` turns them on: the heads draft the
+# next tokens, the main model verifies them, and only tokens the main model would have
+# emitted anyway are accepted — so output is identical to non-MTP (lossless), just ~1.85x
+# faster to decode (verified: ~26 tok/s vs ~14). Speculation requires a single slot, hence
+# `--parallel 1`: MTP is a single-stream speedup, not a concurrency feature (under
+# concurrent load requests serialize and only latency grows — use non-MTP + `--parallel N`
+# if you need many simultaneous users instead).
+#
+# Repo/fit on the 20 GB card: model + mmproj (~0.9 GB) + KV + the MTP heads + the mmproj
+# image-encode scratch (~0.7 GB at runtime) must all fit in 20 GB. Because Qwen3.6 is a
+# hybrid (mostly linear-attention layers with tiny, context-independent KV state), lowering
+# context frees almost no VRAM — the binding constraint is the vision scratch, not KV. The
+# MTP heads cost the headroom that full 65536 + vision needs, so context drops to 49152.
+# Verified on the target: 19714/20475 MiB at load, peak 19832 under a 6-way concurrent
+# stress mix (text + 2170x980 screenshots), no CUDA OOM, dense-screenshot OCR correct.
+# unsloth's MTP Q4_K_M is 17.1 GB; a larger Q4_K_M (e.g. bartowski 18 GB) will not fit.
 Environment=LLAMA_CACHE=/cache
 Volume=/var/lib/llama/cache:/cache:Z
 # The image entrypoint is the llama.cpp server; these are its flags (from the reference
-# docker-compose, with -m/--mmproj replaced by -hf auto-download). --host 0.0.0.0 binds
-# IPv4; the host also has IPv6 (SLAAC) — switch to `--host ::` to serve IPv6 clients too.
-Exec=-hf unsloth/Qwen3.6-27B-GGUF:Q4_K_M --host 0.0.0.0 --port 8000 -c 65536 -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-format auto --alias qwen3.6-27b --parallel 2 --metrics
+# docker-compose, with -m/--mmproj replaced by -hf auto-download, plus MTP). --host 0.0.0.0
+# binds IPv4; the host also has IPv6 (SLAAC) — switch to `--host ::` to serve IPv6 clients too.
+Exec=-hf unsloth/Qwen3.6-27B-MTP-GGUF:Q4_K_M --host 0.0.0.0 --port 8000 -c 49152 -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-format auto --alias qwen3.6-27b --parallel 1 --spec-type draft-mtp --spec-draft-n-max 2 --metrics
 
 [Service]
 # compose: restart: unless-stopped.

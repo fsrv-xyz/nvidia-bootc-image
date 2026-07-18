@@ -22,15 +22,16 @@ Environment=HF_HOME=/root/.cache/huggingface
 ShmSize=1g
 # Entrypoint is `vllm serve`; the model is the positional argument.
 # --host :: binds IPv6 (the host is IPv6-only).
-# max-model-len 43000: on the 12 GB card, vLLM v0.25.1 reserves ~1.6 GiB for CUDA-graph
-# capture, leaving ~1.4 GiB KV cache -> a graph-accelerated context ceiling of ~43800
-# (verified on VM 110). Keeping the graphs gives ~105 tok/s single-stream (~4x faster
-# than --enforce-eager, which fits 80k but drops to ~27 tok/s). --cpu-offload-gb fits 80k
-# too but streams weights over PCIe -> ~11 tok/s, not worth it. An older vLLM nightly
-# (0.23.x) fit the full 80k with graphs, but we pin the stable release over a nightly.
-# Full background/options/measurements: see systems/rtx3080ti/README.md (root cause is
-# the upstream vLLM GDN prefill-warmup memory leak, issue #36973).
-Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 43000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}'
+# kv-cache-dtype fp8 + max-model-len 60000: the upstream GDN prefill-warmup leak (vLLM
+# #36973) reserves ~1.6 GiB on the 12 GB card, leaving only ~1.4 GiB KV cache -> bf16
+# caps a graph-accelerated context at ~43800. fp8 halves KV per token, lifting the
+# ceiling to ~62000, so 60000 fits WITH CUDA graphs at full speed (~107 tok/s single-
+# stream on VM 110). Only trade-off is the fp8-quantized KV cache (minor quality). This
+# beats bf16+43k (more context, same speed), --enforce-eager (80k but ~27 tok/s) and
+# --cpu-offload-gb (80k but ~11 tok/s). Full 80k+speed returns once #36973 is fixed
+# upstream (then drop fp8 and set 80000).
+# Full background/options/measurements: see systems/rtx3080ti/README.md.
+Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 60000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}' --kv-cache-dtype fp8
 
 [Service]
 Restart=on-failure

@@ -28,6 +28,8 @@ ShmSize=1g
 # than --enforce-eager, which fits 80k but drops to ~27 tok/s). --cpu-offload-gb fits 80k
 # too but streams weights over PCIe -> ~11 tok/s, not worth it. An older vLLM nightly
 # (0.23.x) fit the full 80k with graphs, but we pin the stable release over a nightly.
+# Full background/options/measurements: see systems/rtx3080ti/README.md (root cause is
+# the upstream vLLM GDN prefill-warmup memory leak, issue #36973).
 Exec=cyankiwi/Qwen3.5-9B-AWQ-4bit --served-model-name qwen3.5-9b --host :: --port 8000 --max-model-len 43000 --gpu-memory-utilization 0.95 --max-num-seqs 4 --max-num-batched-tokens 2048 --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":0,"video":0}'
 
 [Service]

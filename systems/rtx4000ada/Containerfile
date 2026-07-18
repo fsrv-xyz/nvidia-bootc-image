@@ -1,16 +1,14 @@
-# vLLM system image for the NVIDIA RTX 4000 Ada (20 GB).
-# Builds on the generic base image and adds this system's own vLLM configuration:
-# the logically bound vLLM image + the Quadlet service serving Qwen3.5-0.8B.
+# llama.cpp system image for the NVIDIA RTX 4000 Ada (20 GB).
+# Builds on the generic base image and adds this system's own llama.cpp configuration:
+# the logically bound llama.cpp server image + the Quadlet service serving Qwen3.6-27B
+# (Q4_K_M GGUF, multimodal). See README.md for model placement and config details.
 #
 # BASE defaults to the published :main base; CI passes the matching per-pipeline tag,
 # and local builds tag the freshly built base as this ref so FROM resolves offline.
-#
-# The vLLM config currently matches the rtx3080ti system; the extra VRAM lets this
-# system diverge later (e.g. a larger --max-model-len) by editing files/ here only.
 ARG BASE=registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/base:main
 FROM ${BASE}
 
-# This system's own vLLM files (vllm.image, vllm.container, tmpfiles, bound-images.d).
+# This system's own llama.cpp files (llama.image, llama.container, tmpfiles, bound-images.d).
 COPY files/ /
 
 RUN bootc container lint

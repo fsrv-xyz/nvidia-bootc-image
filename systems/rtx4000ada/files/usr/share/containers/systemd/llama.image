@@ -1,0 +1,7 @@
+# Logically bound image: the /usr/lib/bootc/bound-images.d/llama.image symlink points
+# bootc at this file; bootc pulls the image into its bound store on install/upgrade and
+# binds it to the OS deployment. No [Install] here on purpose — the container references
+# the image directly and reads it from the bootc store (additional image store). Keep
+# this tag in sync with llama.container.
+[Image]
+Image=ghcr.io/ggml-org/llama.cpp:server-cuda

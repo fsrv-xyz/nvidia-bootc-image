@@ -38,9 +38,12 @@ Network=host
 Environment=LLAMA_CACHE=/cache
 Volume=/var/lib/llama/cache:/cache:Z
 # The image entrypoint is the llama.cpp server; these are its flags (from the reference
-# docker-compose, with -m/--mmproj replaced by -hf auto-download, plus MTP). --host 0.0.0.0
-# binds IPv4; the host also has IPv6 (SLAAC) — switch to `--host ::` to serve IPv6 clients too.
-Exec=-hf unsloth/Qwen3.6-27B-MTP-GGUF:Q4_K_M --host 0.0.0.0 --port 8000 -c 49152 -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-format auto --alias qwen3.6-27b --parallel 1 --spec-type draft-mtp --spec-draft-n-max 2 --metrics
+# docker-compose, with -m/--mmproj replaced by -hf auto-download, plus MTP). --host ::
+# binds the IPv6 wildcard; on Linux this is a dual-stack socket (IPV6_V6ONLY=0 by default),
+# so it serves IPv6 clients *and* IPv4 (as v4-mapped) on the same port. The host has a stable
+# EUI-64 SLAAC address (see 10-ethernet-ipv6.network); 0.0.0.0 would bind IPv4 only and leave
+# those IPv6 clients unable to connect.
+Exec=-hf unsloth/Qwen3.6-27B-MTP-GGUF:Q4_K_M --host :: --port 8000 -c 49152 -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 --jinja --reasoning-format auto --alias qwen3.6-27b --parallel 1 --spec-type draft-mtp --spec-draft-n-max 2 --metrics
 
 [Service]
 # compose: restart: unless-stopped.

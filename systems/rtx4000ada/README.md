@@ -70,8 +70,8 @@ cache), `--jinja --reasoning-format auto`, `--parallel 1` (single slot — requi
 `--spec-type draft-mtp --spec-draft-n-max 2` (MTP speculative decoding), `--metrics`.
 
 - **GPU:** `AddDevice=nvidia.com/gpu=all` (CDI, generated at boot).
-- **Networking:** `Network=host`; `--host 0.0.0.0` (IPv4). The host also has IPv6 (SLAAC);
-  switch `Exec=` to `--host ::` in `llama.container` if you need to serve IPv6 clients.
+- **Networking:** `Network=host`; `--host ::` (IPv6 wildcard, dual-stack on Linux — serves
+  both IPv6 and IPv4-mapped clients on port 8000). The host has a stable EUI-64 SLAAC address.
 - **Model cache:** host `/var/lib/llama/cache` → container `/cache` (`LLAMA_CACHE`).
 
 ## Bumping the image

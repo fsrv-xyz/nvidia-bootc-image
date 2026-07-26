@@ -107,11 +107,11 @@ build-iso:
       if [ "$CI_COMMIT_REF_NAME" = "$CI_DEFAULT_BRANCH" ] || [ -n "$CI_COMMIT_TAG" ]; then
         { [ -n "$S3_URL" ] && [ -n "$S3_CREDENTIALS" ]; } || { echo "S3_URL/S3_CREDENTIALS not set on this protected ref"; exit 1; }
         docker run --rm --network host --user 0:0 \
-          -e S3_URL -e S3_CREDENTIALS -e KEY="install-$CI_COMMIT_REF_SLUG.iso" \
+          -e S3_URL -e S3_CREDENTIALS -e KEY="nvidia-bootc-install-$CI_COMMIT_REF_SLUG.iso" \
           -v "$OUT/bootiso:/iso:ro" -w /iso \
           --entrypoint sh curlimages/curl:latest -c \
           'curl -fsS -X PUT --user "$S3_CREDENTIALS" --aws-sigv4 "aws:amz:default:s3" --upload-file install.iso "$S3_URL/$KEY"'
-        echo "Uploaded install-$CI_COMMIT_REF_SLUG.iso to S3."
+        echo "Uploaded nvidia-bootc-install-$CI_COMMIT_REF_SLUG.iso to S3."
       else
         echo "Not the default branch or a tag; skipping S3 upload (build-only validation)."
       fi

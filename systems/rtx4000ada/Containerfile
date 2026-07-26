@@ -9,6 +9,7 @@ ARG BASE=registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/base:main
 FROM ${BASE}
 
 # This system's own llama.cpp files (llama.image, llama.container, tmpfiles, bound-images.d).
+COPY shared/ /
 COPY files/ /
 
 RUN bootc container lint

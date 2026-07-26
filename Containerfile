@@ -33,6 +33,8 @@ RUN set -eux; \
       systemd-networkd \
       systemd-resolved \
       cloud-utils-growpart \
+      htop \
+      nload \
       nvtop; \
     KVER="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -1)"; \
     if ! dnf -y install --setopt=install_weak_deps=False "kernel-devel-${KVER}"; then \
@@ -77,6 +79,7 @@ RUN set -eux; \
     # Services. \
     systemctl enable qemu-guest-agent.service; \
     systemctl enable nvidia-cdi-generate.service; \
+    systemctl enable nftables.service; \
     systemctl enable grow-var.service; \
     ( systemctl enable nvidia-persistenced.service || true ); \
     # Let podman read the bootc bound-image store as a (read-only) additional image
@@ -113,6 +116,7 @@ RUN set -eux; \
       | xargs -r dnf -y remove; \
     # sssd-common/-client stay (pam/nss login) — just don't run the daemon. \
     systemctl mask sssd.service; \
+    rm -rf /etc/nftables; \
     dnf clean all; \
     rm -rf /var/cache/* /tmp/*
 

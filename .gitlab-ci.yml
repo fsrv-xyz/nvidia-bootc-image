@@ -38,21 +38,51 @@ include:
 
   - component: $CI_SERVER_FQDN/fsrvcorp/ci-components/semver@0.1.0
 
+# Rebuild the base image only when its build inputs change. The container component
+# exposes no `rules` input, so override its generated job by name (interpolated from
+# instance_name: base) and attach a rules:changes gate. The system-image components keep
+# no rules and build on every push; on a new branch the push delta is "all changed", so
+# base still builds and base:$CI_COMMIT_REF_SLUG exists for the system FROM. A tag
+# pipeline (semver) has no diff base, so changes evaluates true and the base rebuilds.
+"Build and Push Container Image (base)":
+  rules:
+    - changes:
+        paths:
+          - Containerfile
+          - files/**/*
+          - sshkeys/**/*
+          - .dockerignore
+          - bib/config.toml
+
 # Stage 3: Anaconda installer ISO for the BASE image. Custom job (the container
 # component only does `docker build`): bootc-image-builder --type anaconda-iso builds
 # an unattended installer that references the ref.ci base image, on the same remote
 # Docker host as the container component, via privileged `docker run`.
 #
-# BUILD-ONLY (validation): the job proves the ISO assembles from the current base; it
-# does NOT publish. The ISO is ~2.9 GB, and ref.ci's ingress enforces a hard ~135 s
-# gateway timeout, so a single-PUT upload to the generic package registry always 504s.
-# The GitHub Actions `iso` job (16 GB runner, no gateway limit) publishes the
-# authoritative ISO as a workflow artifact / release asset. osbuild also needs plenty of
-# scratch on the Docker host's `/` (ostree commit + rootfs + squashfs + ISO, ~15 GB peak)
-# -> keep the host disk clear, or this fails with "exceeds free space on media".
+# On every matching ref the job VALIDATES that the ISO assembles from the current base.
+# On the default branch and git tags it additionally PUBLISHES the ISO to S3
+# (install-$CI_COMMIT_REF_SLUG.iso) via an aws-sigv4 curl PUT — S3 is external, so it is
+# not subject to ref.ci's ~135 s ingress gateway timeout that blocks uploads to the
+# generic package registry. Requires $S3_URL and $S3_CREDENTIALS (access:secret) as
+# CI/CD variables, protected so they are exposed only on the default branch / tags. The
+# GitHub Actions `iso` job still publishes the same ISO as a workflow artifact. osbuild
+# needs plenty of scratch on the Docker host's `/` (ostree commit + rootfs + squashfs +
+# ISO, ~15 GB peak) -> keep the host disk clear, or this fails with "exceeds free space
+# on media".
 build-iso:
   stage: build-iso
   image: docker:cli
+  # Build the ISO only when the base was (re)built or the kickstart config changed. One
+  # changes.paths list is an OR: base inputs plus bib/iso-config.toml.
+  rules:
+    - changes:
+        paths:
+          - Containerfile
+          - files/**/*
+          - sshkeys/**/*
+          - .dockerignore
+          - bib/config.toml
+          - bib/iso-config.toml
   variables:
     DOCKER_HOST: "tcp://docker-remote-environment.drudge.systems:2376"
     DOCKER_TLS_VERIFY: "1"
@@ -67,7 +97,24 @@ build-iso:
     - docker run --rm --privileged --network host -v /var/lib/containers/storage:/var/lib/containers/storage quay.io/podman/stable podman pull "$IMG"
     # Build the Anaconda installer ISO referencing the ref.ci base image.
     - docker run --rm --privileged --network host --security-opt label=disable -v "$OUT:/output" -v /var/lib/containers/storage:/var/lib/containers/storage -v "$OUT/iso-config.toml:/config.toml:ro" quay.io/centos-bootc/bootc-image-builder:latest --type anaconda-iso --rootfs ext4 --config /config.toml "$IMG"
-    # Verify the ISO was produced, then discard it (build-only validation; not published).
+    # Verify the ISO was produced.
     - docker run --rm -v "$OUT:/out" alpine sh -c 'ls -lh /out/bootiso/install.iso'
+    # Publish to S3 on the default branch and git tags only. The ISO lives on the remote
+    # Docker host, so upload from a curl container there. S3_URL/S3_CREDENTIALS are passed
+    # via -e and expanded inside the container (not the runner shell) so they never reach
+    # the docker argv; --user 0:0 lets curl read the root-owned ISO.
+    - |
+      if [ "$CI_COMMIT_REF_NAME" = "$CI_DEFAULT_BRANCH" ] || [ -n "$CI_COMMIT_TAG" ]; then
+        { [ -n "$S3_URL" ] && [ -n "$S3_CREDENTIALS" ]; } || { echo "S3_URL/S3_CREDENTIALS not set on this protected ref"; exit 1; }
+        docker run --rm --network host --user 0:0 \
+          -e S3_URL -e S3_CREDENTIALS -e KEY="install-$CI_COMMIT_REF_SLUG.iso" \
+          -v "$OUT/bootiso:/iso:ro" -w /iso \
+          --entrypoint sh curlimages/curl:latest -c \
+          'curl -fsS -X PUT --user "$S3_CREDENTIALS" --aws-sigv4 "aws:amz:default:s3" --upload-file install.iso "$S3_URL/$KEY"'
+        echo "Uploaded install-$CI_COMMIT_REF_SLUG.iso to S3."
+      else
+        echo "Not the default branch or a tag; skipping S3 upload (build-only validation)."
+      fi
+    # Discard the ISO from the Docker host.
     - docker run --rm -v /root:/host alpine sh -c "rm -rf /host/bib-iso-$CI_COMMIT_REF_SLUG"
     - echo "ISO built and validated (not published; GitHub Actions publishes the authoritative artifact)."

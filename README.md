@@ -43,8 +43,11 @@ The build is split in two layers:
 
 ## Build
 
-**Builds run primarily in CI** (`.gitlab-ci.yml`) — every push builds the base and the
-system images and pushes them to the registry. See the CI section below.
+**Builds run primarily in CI** (`.gitlab-ci.yml`) — every push builds the **system**
+images. The **base** image rebuilds only when its build inputs change (`Containerfile`,
+`files/`, `sshkeys/`, `.dockerignore`, `bib/config.toml`); the installer **ISO** builds
+only when the base was rebuilt or the kickstart (`bib/iso-config.toml`) changed. See the
+CI section below.
 
 The scripts below are optional local helpers. They use your **local Docker**; to build
 on a remote engine, set `DOCKER_HOST` yourself (`export DOCKER_HOST=ssh://user@builder`).
@@ -150,12 +153,17 @@ The test VM (110) was grown to 60 GB.
 `.gitlab-ci.yml` uses the shared `fsrvcorp/ci-components`:
 
 - `container@0.1.0` (×3) — builds with `docker buildx` on the remote Docker host and
-  pushes to the project registry. Stage `build-base` builds the base
-  (`.../base`); stage `build-systems` builds the system images (`.../rtx3080ti`,
-  `.../rtx4000ada`) `FROM` the base built in stage 1. All jobs tag with
-  `$CI_COMMIT_REF_SLUG`, so a system's `FROM .../base:<ref>` resolves to the base
-  from the same pipeline — always, on every ref, no rules needed. The base tag is
-  passed to the system builds via `--build-arg BASE=...`.
+  pushes to the project registry. Stage `build-base` builds the base (`.../base`) **only
+  when its inputs change** (a `rules:changes` override on the generated base job, matching
+  `Containerfile`, `files/`, `sshkeys/`, `.dockerignore`, `bib/config.toml`); stage
+  `build-systems` builds the system images (`.../rtx3080ti`, `.../rtx4000ada`) `FROM` the
+  base **on every push**. All jobs tag with `$CI_COMMIT_REF_SLUG`; when the base is
+  skipped, `base:<ref>` still exists from the prior pipeline on that ref (a new branch's
+  first push has an "all changed" delta, so the base is built). The base tag is passed to
+  the system builds via `--build-arg BASE=...`.
+- `build-iso` — a custom job (not a component) that validates the Anaconda ISO builds from
+  the current base. It runs only when the base inputs **or** `bib/iso-config.toml` change
+  (`rules:changes`).
 - `semver@0.1.0` — on the default branch, derives the next version from conventional
   commits and creates a git tag, which triggers a versioned build.
 
@@ -173,9 +181,14 @@ The repo is push-mirrored to `github.com/fsrv-xyz/nvidia-bootc-image`, where
 `.github/workflows/build-images.yml` builds and publishes the same images to GitHub
 Container Registry, **independently of the private registry**:
 
+- Job `changes` diffs the push (`event.before → sha`; a new branch/tag counts as "all
+  changed") and decides what to build: `base` runs only when the base inputs changed;
+  `systems` runs on **every** push, even when `base` was skipped (`base:<ref>` still
+  exists from a prior pipeline); `iso` runs only when `base` was rebuilt **or**
+  `bib/iso-config.toml` changed.
 - Job `base` builds `ghcr.io/fsrv-xyz/nvidia-bootc-image/base:<ref>`.
-- Job `systems` (matrix `rtx3080ti`/`rtx4000ada`, `needs: base`) builds each system
-  **`FROM` the ghcr base** (`--build-arg BASE=ghcr.io/.../base:<ref>`) → pushes
+- Job `systems` (matrix `rtx3080ti`/`rtx4000ada`, `needs: [changes, base]`) builds each
+  system **`FROM` the ghcr base** (`--build-arg BASE=ghcr.io/.../base:<ref>`) → pushes
   `.../rtx3080ti`, `.../rtx4000ada`. GitHub images never reference ref.ci; the ref.ci
   images build from the ref.ci base. This split works because the system Containerfiles
   take the base as `ARG BASE`.

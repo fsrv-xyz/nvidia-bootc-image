@@ -18,15 +18,47 @@ env:
   IMAGE_BASE: ghcr.io/${{ github.repository }}
 
 jobs:
-  base:
+  # Detect which build inputs changed in this push so downstream jobs can skip.
+  # New branch / tag / unresolvable range -> treat everything as changed, so the
+  # per-ref base tag is always built before the system images FROM it.
+  changes:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
+      base_changed: ${{ steps.detect.outputs.base_changed }}
+      iso_config_changed: ${{ steps.detect.outputs.iso_config_changed }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: meta
         # Ref name as the image tag; sanitize '/' from branch names.
         run: echo "tag=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+      - id: detect
+        run: |
+          set -eu
+          before='${{ github.event.before }}'
+          if [ -z "$before" ] \
+             || [ "$before" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            base_changed=true; iso_config_changed=true
+          else
+            files="$(git diff --name-only "$before" "$GITHUB_SHA")"
+            base_re='^(Containerfile|files/|sshkeys/|\.dockerignore$|bib/config\.toml$)'
+            iso_re='^bib/iso-config\.toml$'
+            base_changed=false; iso_config_changed=false
+            echo "$files" | grep -qE "$base_re" && base_changed=true
+            echo "$files" | grep -qE "$iso_re" && iso_config_changed=true
+          fi
+          echo "base_changed=$base_changed" >> "$GITHUB_OUTPUT"
+          echo "iso_config_changed=$iso_config_changed" >> "$GITHUB_OUTPUT"
+
+  base:
+    needs: changes
+    if: ${{ needs.changes.outputs.base_changed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
       - uses: docker/setup-buildx-action@v3
@@ -43,10 +75,13 @@ jobs:
           push: true
           # Plain single-arch image manifest (no provenance/SBOM index) for bootc.
           provenance: false
-          tags: ${{ env.IMAGE_BASE }}/base:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.IMAGE_BASE }}/base:${{ needs.changes.outputs.tag }}
 
   systems:
-    needs: base
+    needs: [changes, base]
+    # Always build the system images; run even when `base` was skipped (base:<ref>
+    # already exists from a prior pipeline), but not if `base` actually failed.
+    if: ${{ !cancelled() && needs.base.result != 'failure' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -70,8 +105,8 @@ jobs:
           provenance: false
           # Build FROM the ghcr base built in the `base` job — independent of ref.ci.
           build-args: |
-            BASE=${{ env.IMAGE_BASE }}/base:${{ needs.base.outputs.tag }}
-          tags: ${{ env.IMAGE_BASE }}/${{ matrix.system }}:${{ needs.base.outputs.tag }}
+            BASE=${{ env.IMAGE_BASE }}/base:${{ needs.changes.outputs.tag }}
+          tags: ${{ env.IMAGE_BASE }}/${{ matrix.system }}:${{ needs.changes.outputs.tag }}
 
   # Anaconda installer ISO for the BASE image, referencing the ghcr base (independent of
   # ref.ci). bootc-image-builder --type anaconda-iso builds an unattended installer;
@@ -80,7 +115,8 @@ jobs:
   # release assets are capped at 2 GiB and this ISO is ~3 GB, so the attach step always
   # fails validation ("size must be less than 2147483648"). The artifact carries it.
   iso:
-    needs: base
+    needs: [changes, base]
+    if: ${{ !cancelled() && (needs.base.result == 'success' || needs.changes.outputs.iso_config_changed == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +125,7 @@ jobs:
       - name: Build anaconda ISO
         run: |
           set -eux
-          IMG="${IMAGE_BASE}/base:${{ needs.base.outputs.tag }}"
+          IMG="${IMAGE_BASE}/base:${{ needs.changes.outputs.tag }}"
           mkdir -p out
           # Auth file so bootc-image-builder can pull the (possibly private) ghcr base.
           printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' \
@@ -109,6 +145,6 @@ jobs:
           sudo chmod -R a+rX out
       - uses: actions/upload-artifact@v4
         with:
-          name: nvidia-bootc-base-installer-${{ needs.base.outputs.tag }}
+          name: nvidia-bootc-base-installer-${{ needs.changes.outputs.tag }}
           path: out/bootiso/install.iso
           if-no-files-found: error

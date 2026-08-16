@@ -28,7 +28,7 @@ jobs:
       base_changed: ${{ steps.detect.outputs.base_changed }}
       iso_config_changed: ${{ steps.detect.outputs.iso_config_changed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
       - id: meta
@@ -58,16 +58,16 @@ jobs:
     if: ${{ needs.changes.outputs.base_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v3.12.0
+      - uses: docker/login-action@v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6.19.2
         with:
           context: .
           file: ./Containerfile
@@ -87,16 +87,16 @@ jobs:
       matrix:
         system: [rtx3080ti, rtx4000ada]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v3.12.0
+      - uses: docker/login-action@v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6.19.2
         with:
           context: systems/${{ matrix.system }}
           file: systems/${{ matrix.system }}/Containerfile
@@ -119,7 +119,7 @@ jobs:
     if: ${{ !cancelled() && (needs.base.result == 'success' || needs.changes.outputs.iso_config_changed == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
       - name: Build anaconda ISO
@@ -143,7 +143,7 @@ jobs:
             quay.io/centos-bootc/bootc-image-builder:latest \
             --type anaconda-iso --rootfs ext4 --config /config.toml "$IMG"
           sudo chmod -R a+rX out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: nvidia-bootc-base-installer-${{ needs.changes.outputs.tag }}
           path: out/bootiso/install.iso

@@ -71,7 +71,7 @@ include:
 # on media".
 build-iso:
   stage: build-iso
-  image: docker:cli
+  image: docker:cli@sha256:000bb62ff495f986c9f5578eb67cc2cb98b91138eda81d7762d5371eb8a497fe
   # Build the ISO only when the base was (re)built or the kickstart config changed. One
   # changes.paths list is an OR: base inputs plus bib/iso-config.toml.
   rules:

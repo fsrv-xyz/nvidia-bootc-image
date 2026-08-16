@@ -1,4 +1,4 @@
-FROM quay.io/fedora/fedora-bootc:42
+FROM quay.io/fedora/fedora-bootc:42@sha256:077182b6ba853b3348d0bede602ac30b9e6568c6422bcf0654de5af96f19b9c3
 
 # --- RPM Fusion (free + nonfree) for the proprietary NVIDIA driver ---
 RUN set -eux; \

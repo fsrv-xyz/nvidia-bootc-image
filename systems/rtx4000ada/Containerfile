@@ -5,7 +5,7 @@
 #
 # BASE defaults to the published :main base; CI passes the matching per-pipeline tag,
 # and local builds tag the freshly built base as this ref so FROM resolves offline.
-ARG BASE=registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/base:main@sha256:17ccc5dffffa37e1805121b427570902651eb109ca6992bcd2b87e1ad6facf99
+ARG BASE=registry.fsrv.services/fsrvcorp/images/nvidia-bootc-image/base:main@sha256:6297a6bfee80147013dc4ea038aa56fe06a26fa462ba92094c88375f52c6588c
 FROM ${BASE}
 
 # This system's own llama.cpp files (llama.image, llama.container, tmpfiles, bound-images.d).

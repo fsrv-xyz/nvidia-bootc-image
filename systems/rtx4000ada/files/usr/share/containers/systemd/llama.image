@@ -4,4 +4,4 @@
 # the image directly and reads it from the bootc store (additional image store). Keep
 # this tag in sync with llama.container.
 [Image]
-Image=ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:9f0a986a78ab9261afc3266c807c16933ee4c26c62cb063f0c17f8da890f6c7e
+Image=ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:952424b09abc18668a9891041b275bf8c96afb6107d65d33ba104da9b18490c7

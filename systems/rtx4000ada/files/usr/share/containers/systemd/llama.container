@@ -8,7 +8,7 @@ Wants=nvidia-cdi-generate.service grow-var.service network-online.target
 # Direct reference to the logically bound image. bootc pre-pulls it into its bound store
 # (see /usr/lib/bootc/bound-images.d/llama.image); podman finds it there via the
 # additional-image-store config. Keep this tag in sync with llama.image.
-Image=ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:7f87a3bbe3143cdb857f5c84f82d2c15528be70ca0e7c5ade9a47d56b791f93f
+Image=ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:82de60bb2ba6e66d750f4b7db8752bc3071a2ed3999700d0b21c8b5c709b5513
 # GPU via CDI (spec generated at boot by nvidia-cdi-generate.service).
 AddDevice=nvidia.com/gpu=all
 SecurityLabelDisable=true
